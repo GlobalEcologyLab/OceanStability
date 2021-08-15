@@ -8,7 +8,7 @@
 .csv
 
 # Exclude TraCE21 temp stack
-./source/AnnualTemperatureStack_21000_0BP.nc
+source/AnnualTemperatureStack_21000_0BP.nc
 
 # Exclude the files from the compiled markdown docs
 !Code/*.Rmd
