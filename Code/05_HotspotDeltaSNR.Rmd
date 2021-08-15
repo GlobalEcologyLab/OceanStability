@@ -1,0 +1,296 @@
+---
+title: "05 - Hotspot Delta SNR"
+author: "Stuart Brown"
+output: 
+  html_document: 
+    theme: flatly
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+    fig_width: 7
+    fig_height: 5
+    fig_caption: yes
+    number_sections: no
+    keep_md: yes
+    df_print: paged
+    code_folding: show
+    highlight: tango
+bibliography: references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, rows.print = 10, cols.print = 10,
+                      rownames.print = FALSE, warning = FALSE,
+                      message = FALSE, eval = TRUE, results = "markup", 
+                      error = FALSE, strip.white = TRUE,
+                      tidy = "styler", dpi = 320, fig.align = "center",
+                      strip.white = TRUE, 
+                      dev.args = list(png  = list(type = "cairo")),
+                      root.dir = "/mnt/c/OceanStability")
+```
+
+## Read in the data
+
+Here we read in the climate data and species richness data for plotting
+
+```{r importData, results='markup'}
+library(terra)
+library(sf)
+library(units)
+library(ggplot2)
+library(data.table)
+library(rnaturalearth)
+
+# Output path
+outDir <- "/mnt/c/OceanStability"
+
+# Ocean
+oceans <- read_sf(file.path(outDir, "ne_50m_ocean.shp"))
+coastlines <- ne_coastline(50, "sf")
+
+# Marine realms from Costello et al
+## need to source
+## available from https://auckland.figshare.com/articles/GIS_shape_files_of_realm_maps/5596840
+regions <- read_sf("/mnt/c/Shapes/MarineRealmsShapeFile/MarineRealms.shp")
+
+st_agr(oceans) <- "constant"
+st_agr(regions) <- "constant"
+
+# Crop regions to oceans
+regions <- st_transform(
+  # project to plate-carree before intersecting
+  # add 0 buffer to avoid TopologyException error
+  st_intersection(st_buffer(st_transform(regions, crs = "EPSG:32662"), 0),
+                  st_buffer(st_transform(oceans[2], crs = "EPSG:32662"), 0)),
+  crs = "EPSG:4326")
+
+# Area of each region in km^2
+regions$Area <- set_units(st_area(regions), "km^2")
+
+# Region names
+reg_name <- data.table(
+  Realm = c(1L:30L),
+  Name = c("Inner Baltic Sea","Black Sea","NE Atlantic",
+           "Norwegian Sea","Mediterranean","Artic Seas",
+           "N Pacific","N American Boreal",
+           "mid-tropical N Pacific","SE Pacific",
+           "Caribbean & Gulf of Mexico","Gulf of California",
+           "Indo-Pacific seas & Indian Ocean",
+           "Gulfs of Aqaba, Aden, Suez, Red Sea","Tasman Sea","Coral Sea",
+           "Mid South Tropical Pacific",
+           "Offshore & NW North Atlantic","Offshore Indian Ocean",
+           "Offshore W Pacific","Offshore S Atlantic",
+           "Offshore mid-E Pacific","Gulf of Guinea",
+           "Rio de La Plata","Chile","S Australia",
+           "S Africa","New Zealand","N W Pacific",
+           "Southern Ocean"))
+regions <- merge(regions, reg_name, by = "Realm")
+
+# 95th percentile hotspots
+hotspots <- read_sf(file.path(outDir, "marine_species_hotspots_poly.shp"))
+hotspots <- hotspots[hotspots$Thresh == 95, ]
+st_agr(hotspots) <- "constant"
+```
+
+## Intersect hotspots with marine biogeographic realms
+
+Here we need to intersect the hotspots with their corresponding biogeographic realm
+
+```{r intersectHSAndRealms}
+hs_int <- st_transform(st_intersection(st_buffer(st_transform(hotspots, crs = "EPSG:32662"), 0),
+                          st_buffer(st_transform(regions[4], crs = "EPSG:32662"), 0)),
+                       "EPSG:4326")
+st_agr(hs_int) <- "constant"
+
+# Area of intersected hotspots in km^2
+hs_int$Area <- set_units(st_area(hs_int), "km^2")
+
+# Area of 2.5° grid cells at 0° lat == 77270.818 km2
+## remove intersected hotspots that have less than 3 cells of area
+hs_int <- hs_int[hs_int$Area >= as_units(231813, "km^2"), ]
+
+# Keep only the regions that contain hotspots
+regions_w_hs <- regions[regions$Name %in% hs_int$Name, ]
+```
+
+A quick plot of the regions that contain hotspots, and the hotspot locations shows the following
+
+```{r plotRegWHot, echo = TRUE, fig.show='asis', fig.cap="Plot of marine biogeographic realms the contain marine biodiversity hotspots", fig.align='center', fig.height = 5, fig.width = 8, out.width='100%'}
+ggplot() + 
+  geom_sf(data = oceans, fill = "grey90", colour = NA) +
+  geom_sf(data = regions_w_hs, aes(fill = Name), colour = "white", size = 0.75) +
+  scale_fill_manual(values = {set.seed(18);sample(hcl.colors(12, "Dynamic"), 12, replace = FALSE)}) +
+  geom_sf(data = hs_int, fill = NA, colour = "black") +
+  geom_sf(data = coastlines, colour = "black", inherit.aes = FALSE, size = 0.5) +
+  coord_sf(xlim = c(-180,180), ylim = c(-90,90),
+           expand = FALSE) +
+  cowplot::theme_map() +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.direction = "horizontal",
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.title = element_blank())
+```
+
+## Intersect hotspot locations with SNR
+
+Now we need to intersect the hotspot locations with the SNR data so we can look at changes in SNR within each hotspot and biogeographic realm.
+
+```{r hsIntersectSNR}
+# Convert hotspots to points
+## rasterise
+hotspots_r <- rasterize(vect(hs_int),
+                        y = rast(resolution = 2.5, crs = "EPSG:4326", 
+                                 extent = c(-180,180,-90,90)),
+                        field = "Name")
+## convert to points
+hotspots_p <- st_as_sf(as.points(hotspots_r))
+
+# Read in the grid-cell SNR data
+cell_snr <- fread(file.path(outDir, "SNR_Cell.csv"))
+cell_snr <- cell_snr[Region %in% hotspots_p$Name, ]
+cell_snr <- st_as_sf(cell_snr, coords = c("x", "y"), crs = 4326)
+
+# intersect hotspots with cell_snr
+## only intersect Region, Scenario, and SNR
+hotspot_delta_snr <- st_transform(st_intersection(
+  st_transform(hotspots_p, crs = "EPSG:32662"),
+  st_transform(cell_snr[, c(2:4)], crs = "EPSG:32662")),
+  crs = "EPSG:4326")
+
+# change to data.table
+hotspot_delta <- as.data.table(hotspot_delta_snr)
+hotspot_delta[, ':='(
+  Lon = st_coordinates(hotspot_delta_snr)[,1],
+  Lat = st_coordinates(hotspot_delta_snr)[,2],
+  geometry = NULL)]
+colnames(hotspot_delta)[1:2] <- c("HotspotRegion", "SNRCellRegion")
+setorder(hotspot_delta, -Scenario, HotspotRegion)
+hotspot_delta[1:20,]
+```
+
+There are a number of cells that cross boundaries between the regions.
+These can be identified by rows where the cells have intersected, but the `Region` and `Name` columns have different values.
+There are three scenarios so there should have been `r 3*nrow(hotspots_p)` rows returned in the intersection if all hotspots matched to an individual cell.
+However, there are `r nrow(hotspot_delta)` rows returned, indicating that there are `r nrow(hotspot_delta) - (3*nrow(hotspots_p))` extra rows.
+That means there are `r (nrow(hotspot_delta) - (3*nrow(hotspots_p)))/3` rows extra for each scenario.
+Here's a preview of these rows for the RCP 4.5 and RCP 8.5 scenario.
+
+```{r prevExtraRows, echo = FALSE, results='markup', fig.show='hold'}
+hotspot_delta[(HotspotRegion != SNRCellRegion) & Scenario != "TraCE", ][order(HotspotRegion), ]
+```
+
+We're going to leave the extra rows in because there is no reason why hotspots that exist on the boundaries between two biogeographic realms shouldn't cross the boundaries.
+
+## Extreme conditions
+
+Here we test whether conditions in the future are more extreme than those seen in the past.
+We do this by calculating the number of cells within a biogeographic realm and hotspots within that realm, that have higher SNR values than those experienced in the past.
+We do this using the 95th percentile of past SNR within each realm.
+A sensitivity analysis is also conducted $\pm$ 5% (`{90-100th percentile}`).
+
+```{r extremeCondAssessment, results='markup', rows.print = 13, cols.print = 12}
+# Read in the grid-cell SNR data agaain
+cell_snr <- fread(file.path(outDir, "SNR_Cell.csv"))
+cell_snr <- cell_snr[Region %in% hotspots_p$Name, ]
+
+# quantiles from the past for each realm
+qSNR <- setDT(cell_snr)[Scenario == "TraCE",
+                       as.list(quantile(SNR, prob = seq(0.9,1,0.01))),
+                       by = c("Region")]
+qSNR
+
+# Regions to iterate through
+regions <- qSNR$Region
+
+num_ext_cells <- lapply(regions, function(realm) {
+  ## Region subset. This will include hotspots that cross the boundary
+  sub <- copy(hotspot_delta[Scenario != "TraCE" & SNRCellRegion == realm, ])
+  ## loop through the RCP scenarios
+  realm_rcp <- lapply(unique(sub$Scenario), function(rcp) {
+    sub_rcp <- sub[Scenario == rcp, ]
+    ## all cells in a realm in the past
+    realm_cells <- setDT(copy(cell_snr))
+    realm_cells <- realm_cells[Scenario == "TraCE" & Region == realm, ]
+    ## how many hotspots cells >= different quantiles
+    ncell <- sapply(colnames(qSNR)[-1], function(thresh) {
+     nrow(sub_rcp[SNR >= qSNR[Region == realm,][[thresh]], ]) 
+    }, USE.NAMES = TRUE)
+    sub_realm <- copy(cell_snr[Scenario == rcp & Region == realm, ])
+    ncell_realm <- sapply(colnames(qSNR)[-1], function(thresh) {
+     nrow(sub_realm[SNR >= qSNR[Region == realm,][[thresh]], ]) 
+    }, USE.NAMES = TRUE)
+    # percentage of extreme cells (ncell extreme hotspots/total number of hotspot cells in realm)
+    perc <- setDT(as.data.table(t(round((ncell/nrow(sub_rcp))*100, 1))))
+    colnames(perc) <- paste0("perc_", colnames(perc))
+    perc[, ':='(Scen = rcp, Realm = realm)]
+    # percentage of extreme cells rel. to realm (ncell extreme across realm/total number of cells in realm))
+    percRealm <- setDT(as.data.table(t(round((ncell_realm/nrow(realm_cells))*100, 1))))
+    colnames(percRealm) <- paste0("percRealm_", colnames(percRealm))
+    percRealm[, ':='(Scen = rcp, Realm = realm)]
+    ncell <- setDT(as.data.frame(t(ncell)))
+    ncell[, ':='(Scen = rcp, Realm = realm)]
+    outDT <- data.table(
+        # Scenario
+        "Scen" = rcp,
+        # Realm
+        "Realm" = realm,
+        # total number of hotspot cells
+        "Total_HS_cells" = as.integer(nrow(sub_rcp)),
+        # total number of cells in a realm
+        "Total_Realm_cells" = as.integer(nrow(realm_cells)))
+    outDT <- merge(outDT, ncell, by = c("Realm", "Scen"))
+    outDT <- merge(outDT, perc, by = c("Realm", "Scen"))
+    outDT <- merge(outDT, percRealm, by = c("Realm", "Scen"))
+    return(outDT)
+  })
+  return(rbindlist(realm_rcp, use.names = TRUE))
+})
+num_ext_cells <- rbindlist(num_ext_cells, use.names = TRUE)
+num_ext_cells[, c("Realm","Scen","Total_HS_cells","Total_Realm_cells", "95%", "perc_95%","percRealm_95%")][order(Realm, Scen), ]
+```
+
+The results show that in some regions the most extreme SNR values were encountered in the past. For example the Caribbean & Gulf of Mexico bioregion under both RCP 8.5 and RCP 4.5 had more extreme conditions in the past. This is also shown by the histograms in the previous section (`04_CalculateOverlap`). However, the opposite is also true with some regions showing 100% of hotspots cells having more extreme conditions than those experienced in the past.
+
+```{r showExtreme, echo = FALSE}
+num_ext_cells[, c("Realm","Scen","Total_HS_cells","Total_Realm_cells", "95%", "perc_95%","percRealm_95%")][order(-`perc_95%`), ]
+```
+
+Here we can look at the change in hotspots cells across all scenarios
+
+```{r hsChanges, results='markup'}
+## how many HS cells are more extreme than the total number of HS cells?
+## the global percentage of hotspots of marine species richness that are likely to experience no-analogue rates of 21st century climate warming
+## these numbers are reported in the main text
+num_ext_cells[, .(GlbCh = round(sum(`95%`)/sum(Total_HS_cells), 2)*100), by = Scen]
+
+## weighted mean based on total realm area
+num_ext_cells[, .(WtdMean = round(Hmisc::wtd.mean(x = `perc_95%`, weights = Total_Realm_cells, normwt = FALSE))),
+              by = Scen]
+```
+
+## Sensitivity analysis
+
+The results of the sensitivity analysis show that for some regions there are changes with regards to the number of hotspot cells that will experience more extreme conditions in the future depending on the threshold of past SNR
+
+```{r sensResults, results='markup', rownames.print = TRUE, rows.print = 13}
+cols <- c("Realm", "Scen", "Total_HS_cells", colnames(num_ext_cells)[grepl("^[9]", colnames(num_ext_cells))])
+sens <- melt(num_ext_cells[, ..cols][order(-Scen), ], id.vars = c("Realm", "Scen"))
+sens_realms <- sapply(unique(sens$Realm), function(x) {
+  sumCells <- sens[Realm == x & variable == "Total_HS_cells",][["value"]][1L]
+  extCells45 <- sens[Realm == x & variable != "Total_HS_cells" & Scen == "RCP45",][["value"]]
+  extCells85 <- sens[Realm == x & variable != "Total_HS_cells" & Scen == "RCP85",][["value"]]
+  r45 <- sd((extCells45/sumCells)*100)
+  r85 <- sd((extCells85/sumCells)*100)
+  return(c("RCP 4.5" = r45, "RCP 8.5" = r85))
+})
+# Sensitivity (sd in % cells depending on threshold)
+round(sens_realms, 1)
+
+# average sd across all realms
+round(apply(as.data.frame(t(sens_realms)), 2, mean), 2)
+
+# range in sd across all realms
+round(apply(as.data.frame(t(sens_realms)), 2, range), 2)
+```
+

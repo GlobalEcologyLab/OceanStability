@@ -1,0 +1,895 @@
+---
+title: "06 - Climate Displacement"
+author: "Stuart Brown"
+output: 
+  html_document: 
+    theme: flatly
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+    fig_width: 7
+    fig_height: 5
+    fig_caption: yes
+    number_sections: no
+    keep_md: yes
+    df_print: paged
+    code_folding: show
+    highlight: tango
+bibliography: references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, rows.print = 10, cols.print = 10,
+                      rownames.print = FALSE, warning = FALSE,
+                      message = FALSE, eval = TRUE, results = "markup", 
+                      error = FALSE, strip.white = TRUE,
+                      tidy = "styler", dpi = 320, fig.align = "center",
+                      strip.white = TRUE, 
+                      dev.args = list(png  = list(type = "cairo")),
+                      root.dir = "/mnt/c/OceanStability")
+```
+
+## Read in the data
+
+Here we read in the climate data which we will use to determine climatic displacement. We'll calculate displacement over a number of climatic periods. Climatic displacement will be calculated as the distance needed to move to analogous climatic conditions in the future (@garcia2014).
+
+```{r readData, results='markup'}
+library(terra)
+library(raster)
+library(VoCC)
+library(sf)
+library(data.table)
+library(rnaturalearth)
+library(ggplot2)
+library(units)
+library(spatialEco)
+library(geosphere)
+
+sf_use_s2(FALSE)
+
+# StableClim path
+scPath <- "/mnt/c/StableClim"
+
+# Path to output directory
+outDir <- "/mnt/c/OceanStability"
+
+# Coastlines and aesthetics
+coastlines <- ne_coastline(50, returnclass = "sf")
+land <- ne_countries(50, returnclass = "sf")
+oceans <- read_sf(file.path(outDir, "ne_50m_ocean.shp"))
+st_agr(oceans) <- "constant"
+
+
+ocean_mask <- read_sf(file.path(outDir, "ne_50m_ocean.shp"))
+ocean_mask <- rasterize(x = vect(ocean_mask), 
+                        y = rast(resolution = 2.5, crs = "EPSG:4326",
+                                 extent = c(-180,180,-90,90)), 
+                        cover = TRUE)
+ocean_mask[ocean_mask < 0.85] <- NA
+ocean_mask[!is.na(ocean_mask)] <- 1
+
+```
+
+Here we use a simple delta bias correction (@beyer2020) which involves calculating anomalies between the TraCE-21 data and the StableClim data during a common climatological period (1850-1950 C.E.; 100 - 0 BP), and then adding these anomalies back to the TraCE21 data to harmonise it with the StableClim data.
+
+```{r biasCorrection, results = 'markup'}
+# Trace
+## stored as °C*100
+## Users need to generate/source this themselves. Data is available in Paleoview
+## but will require some post-processing to get to the same format
+trace <- mask(rast(file.path(outDir, "Source/AnnualTemperatureStack_21000_0BP.nc")),
+              mask = ocean_mask)
+trace
+
+# hotspot data
+rhs <- rast(file.path(outDir, "marine_species_hotspots_wgs84.tif"))
+rhs
+
+# hotspot polygons
+hotspots <- read_sf(file.path(outDir, "marine_species_hotspots_poly.shp"))
+hotspots <- hotspots[hotspots$Thresh == 95, ]
+
+# EEZ boundaries
+## could use dataset from e.g. https://www.marineregions.org/
+## but will instead buffer the land features by 200 nautical miles (370 km)
+eez <- land
+eez$Merge <- 1
+eez <- st_transform(st_intersection(
+  x = st_union(st_buffer(x = st_transform(eez["Merge"], crs = "EPSG:32662"), 
+                         dist = 370*1000, endCapStyle = "ROUND",
+                         joinStyle = "ROUND"),
+               by_feature = FALSE),
+  y = st_transform(oceans[2], crs = "EPSG:32662")),
+  crs = "EPSG:4326")
+
+# Bio-regions
+regions <- read_sf("/mnt/c/Shapes/MarineRealmsShapeFile/MarineRealms.shp")
+st_agr(regions) <- "constant"
+
+# Crop regions to oceans
+regions <- st_transform(
+  # project to plate-carree before intersecting
+  # add 0 buffer to avoid TopologyException error
+  st_intersection(st_buffer(st_transform(regions, crs = "EPSG:32662"), 0),
+                  st_buffer(st_transform(oceans[2], crs = "EPSG:32662"), 0)),
+  crs = "EPSG:4326")
+reg_name <- data.table(
+  Realm = c(1L:30L),
+  Name = c("Inner Baltic Sea","Black Sea","NE Atlantic",
+           "Norwegian Sea","Mediterranean","Artic Seas",
+           "N Pacific","N American Boreal",
+           "mid-tropical N Pacific","SE Pacific",
+           "Caribbean & Gulf of Mexico","Gulf of California",
+           "Indo-Pacific seas & Indian Ocean",
+           "Gulfs of Aqaba, Aden, Suez, Red Sea","Tasman Sea","Coral Sea",
+           "Mid South Tropical Pacific",
+           "Offshore & NW North Atlantic","Offshore Indian Ocean",
+           "Offshore W Pacific","Offshore S Atlantic",
+           "Offshore mid-E Pacific","Gulf of Guinea",
+           "Rio de La Plata","Chile","S Australia",
+           "S Africa","New Zealand","N W Pacific",
+           "Southern Ocean"))
+regions <- merge(regions, reg_name, by = "Realm")
+
+# stableClim
+sc45 <- mask(rast(file.path(scPath, "ncdf/annual/StableClim_AnnMean_rcp45_ts.nc")),
+             ocean_mask)
+time(sc45) <- seq(as.Date("1850-12-16"), as.Date("2100-12-16"), by = "year")
+sc45
+sc85 <- mask(rast(file.path(scPath, "ncdf/annual/StableClim_AnnMean_rcp85_ts.nc")),
+             ocean_mask)
+time(sc85) <- time(sc45)
+sc85
+
+# Need to adjust trace temperatures with anomalies from SC data
+sc_clim <- mask(rast(file.path(scPath, "ncdf/annual/StableClim_AnnMean_rcp45_ts.nc")), ocean_mask)
+time(sc_clim) <- seq(as.Date("1850-06-16"), as.Date("2100-06-16"), by = "year")
+sc_clim <- sc_clim[[which(as.integer(format(time(sc_clim), "%Y")) %between% c(1850,1950))]]
+sc_clim <- app(sc_clim, mean)
+
+# trace clim period
+trace_clim <- trace[[which(-as.integer(gsub("ts_year=", "", names(trace))) >= -100)]]
+trace_clim <- app(trace_clim, mean)/100
+
+# Anomalies
+anom <- sc_clim - trace_clim
+anom
+
+# add the anomalies to harmonise the trace data
+trace <- (trace/100) + anom
+```
+
+## Climate averages
+
+Here we will calculate the mean climate at 2 different time intervals. The Holocene Climatic Optimum (HCO; @gagan1998) , and a 20-yr period centered on 2090 under both RCP 4.5 and RCP 8.5. We also need to calculate the SD in SST during the HCO.
+
+```{r climMeans}
+# Holocene Climatic Optimum
+hc_idx <- which(as.integer(gsub("ts_year=", "", names(trace))) %between% c(5000,9000))
+hco <- app(trace[[hc_idx]], mean)
+hco_sd <- app(trace[[hc_idx]], sd)
+names(hco) <- "HCO"
+names(hco_sd) <- "HCO_SD"
+
+# 2090 RCP
+rcp45 <- app(sc45[[which(as.Date(time(sc45)) >= as.Date("2080-12-16"))]], mean)
+names(rcp45) <- "RCP45"
+rcp85 <- app(sc85[[which(as.Date(time(sc85)) >= as.Date("2080-12-16"))]], mean) 
+names(rcp85) <- "RCP85"
+```
+
+A quick plot of the averages shows warmer conditions by 2090 than that experienced during the Holocene Climatic Optimum.
+
+```{r plotTemps, echo = TRUE, fig.show='asis', fig.cap="SST values during the Holocene Climatic Optimum and the future under RCP 4.5 and RCP 8.5", fig.align='center', fig.height=5, fig.width=9}
+xdf <- melt(setDT(
+  as.data.frame(rast(list(hco, rcp45, rcp85)),
+                xy = TRUE)), id.vars = c("x", "y"))
+xdf[, variable := factor(variable, levels = c("HCO", "RCP45", "RCP85"))]
+ggplot() +
+  geom_raster(data = xdf, aes(x, y, fill = value)) +
+  facet_wrap(~variable, ncol = 2) +
+  scale_fill_gradientn(colours = cptcity::cpt("oc_sst", 100),
+                       limits = c(-33, 33),
+                       labels = seq(-30, 30, by = 10),
+                       breaks = seq(-30, 30, by = 10),
+                       guide = guide_colourbar(
+                         title = "SST",
+                         title.position = "top",
+                         title.hjust = 0.5,
+                         title.theme = element_text(size = 12, colour = "black"),
+                         label.position = "bottom",
+                         label.hjust = 0.5,
+                         label.theme = element_text(size = 12, colour = "black"),
+                         barwidth = 15,
+                         barheight = 0.5,
+                         nbin = 100,
+                         frame.colour = "black",
+                         frame.linewidth = 0.5
+                       )) +
+  geom_sf(data = land, colour = NA, fill = "grey85", inherit.aes = FALSE) +
+  geom_sf(data = coastlines, colour = "black", fill = NA, inherit.aes = FALSE) +
+  coord_sf(xlim = c(-180,180), ylim = c(-90,90),
+           expand = FALSE) +
+  cowplot::theme_map() +
+  theme(legend.position = c(0.75, 0.25),
+        legend.justification = "center",
+        legend.direction = "horizontal",
+        strip.text.x = element_text(size = 12, colour = "black"))
+```
+
+## Displacement from past climates
+
+Here we use the `{VoCC}` package (@garcíamolinos2019) to calculate distance to climatic analogues under RCP 4.5 and RCP 8.5. Distances are not capped, and no climatic tolerance is assumed.
+
+```{r voccDisp, results='markup'}
+# RCP 45
+worldSST_rcp45 <- as(rast(list(hco, rcp45, hco_sd)), "Raster")
+names(worldSST_rcp45) <- c("MnSST_HCO", "MnSST_RCP45", "sdSST_HCO")
+clim45 <- na.omit(data.frame(getValues(worldSST_rcp45), cid = 1:ncell(worldSST_rcp45)))
+clim45[, c("x","y")] <- xyFromCell(worldSST_rcp45, clim45$cid)
+
+# RCP 85
+worldSST_rcp85 <- as(rast(list(hco, rcp85, hco_sd)), "Raster")
+names(worldSST_rcp85) <- c("MnSST_HCO", "MnSST_RCP85", "sdSST_HCO")
+clim85 <- na.omit(data.frame(getValues(worldSST_rcp85), cid = 1:ncell(worldSST_rcp85)))
+clim85[, c("x","y")] <- xyFromCell(worldSST_rcp85, clim85$cid)
+
+# climate velocity and distance to analogues under RCP 4.5
+hco_ca45 <- dVoCC(clim45, n = 1, tdiff = 7140, method = "Variable", climTol = NA,
+                  geoTol = Inf, distfun = "GreatCircle", trans = NA, lonlat = TRUE)
+
+# climate velocity and distance to analogues under RCP 8.5
+hco_ca85 <- dVoCC(clim85, n = 1, tdiff = 7140, method = "Variable", climTol = NA,
+                  geoTol = Inf, distfun = "GreatCircle", trans = NA, lonlat = TRUE)
+
+# Distances masked to hotspots only
+analogue_dist <- worldSST_rcp85[[c(1,1,1,1)]]
+names(analogue_dist) <- c("RCP45", "RCP85", "RCP45Tar", "RCP85Tar")
+analogue_dist[["RCP45"]][hco_ca45$focal] <- hco_ca45$geoDis
+analogue_dist[["RCP85"]][hco_ca85$focal] <- hco_ca85$geoDis
+
+# Target cell containing the climate analogue
+## can extract bioregion using these values
+analogue_dist[["RCP45Tar"]][hco_ca45$focal] <- hco_ca45$target
+analogue_dist[["RCP85Tar"]][hco_ca85$focal] <- hco_ca85$target
+# Mask to hotspot cells
+analogue_dist <- as(analogue_dist, "SpatRaster")
+analogue_dist <- mask(analogue_dist, rhs)
+analogue_dist
+
+# Save to raster file
+writeRaster(analogue_dist,
+            file.path(outDir, "climate_analogue_distances_wgs84.grd"),
+            overwrite = TRUE)
+
+global(analogue_dist[[c("RCP45", "RCP85")]], mean, na.rm = TRUE)
+global(analogue_dist[[c("RCP45", "RCP85")]], sd, na.rm = TRUE)
+```
+
+A plot of the distances to climate analogues within each of the biodiversity hotspots cells shows
+
+```{r plotDist, echo = TRUE, fig.show='asis', fig.cap="Distance to climate analogues under RCP 4.5 and RCP 8.5", fig.align='center', fig.height=10, fig.width=9, results='hide'}
+mollPrj <- 'PROJCS["Pacific_Centrered_Mollweide",
+ GEOGCS["GCS_WGS_1984",
+  DATUM["D_WGS_1984",
+   SPHEROID["WGS_1984",6378137.0,298.257223563]],
+  PRIMEM["Greenwich",0.0],
+  UNIT["Degree",0.0174532925199433]],
+ PROJECTION["Mollweide"],
+ PARAMETER["False_Easting",0.0],
+ PARAMETER["False_Northing",0.0],
+ PARAMETER["Central_Meridian",160],
+ UNIT["Meter",1.0]]'
+
+templ_ras <- rast(resolution = 2.5, crs = "EPSG:4326")
+templ_ras <- project(templ_ras, y = mollPrj)
+res(templ_ras) <- c(100000) # 100km only for plotting
+
+# Projected disance map
+r <- analogue_dist[[c(1:2)]]
+r[["DeltaDist"]] <- r[["RCP85"]] - r[["RCP45"]]
+rdf <- project(r, templ_ras, method = "bilinear")
+rdf <- melt(setDT(as.data.frame(rdf, xy = TRUE, na.rm = TRUE)), id.vars = c("x", "y"))
+rdf[, variable := factor(variable, levels = c("RCP45", "RCP85", "DeltaDist"))]
+
+# projected shapefiles for aesthetics
+hotspots_prj <- read_sf(file.path(outDir, "shapes/hotspots_prj.shp"))
+hotspots_prj <- hotspots_prj[hotspots_prj$Thresh == 95, ]
+land_prj <- read_sf(file.path(outDir, "shapes/land_prj.shp"))
+regions_prj <-  read_sf(file.path(outDir, "shapes/regions_merged_prj.shp"))
+coast_prj <- read_sf(file.path(outDir, "shapes/coast_prj.shp"))
+bbox_prj <- read_sf(file.path(outDir, "shapes/bbox_prj.shp"))
+
+figS3 <- ggplot() +
+  geom_raster(data = rdf[variable != "DeltaDist", ], aes(x, y, fill = value)) +
+  facet_wrap(~variable, ncol = 1,
+             labeller = as_labeller(c("RCP45" = "RCP 4.5",
+                                      "RCP85" = "RCP 8.5"))) +
+  geom_sf(data = land_prj, size = 0.25,
+          inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
+  geom_sf(data = regions_prj, size = 0.5,
+          inherit.aes = FALSE, fill = NA, colour = "grey40") +
+  geom_sf(data = coast_prj, size = 0.25,
+          inherit.aes = FALSE, fill = "#E9E9E9", colour = "black") +
+  geom_sf(data = bbox_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "black") +
+  scale_fill_gradientn(colours = cptcity::cpt("jjg_cbac_seq_cbacYlGnBu09", 100),
+                       limits = c(0, 4500),
+                       labels = function(x) ifelse(test = (seq(0, 4500, by = 500)/500) %% 2 == 0, x, ""),
+                       breaks = seq(0, 4500, by = 500),
+                       oob = scales::squish,
+                       guide = guide_colourbar(
+                         title = "Distance to analogue climate (km)",
+                         title.position = "top",
+                         title.hjust = 0.5,
+                         title.theme = element_text(size = 12, colour = "black"),
+                         label.position = "bottom",
+                         label.hjust = 0.5,
+                         label.theme = element_text(size = 12, colour = "black"),
+                         barwidth = 15,
+                         barheight = 0.5,
+                         nbin = 100,
+                         frame.colour = "black",
+                         frame.linewidth = 0.5
+                       )) +
+  coord_sf(expand = FALSE) +
+  cowplot::theme_map() +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.direction = "horizontal",
+        strip.text.x = element_text(size = 12, colour = "black", hjust = 0))
+# save to PDF
+ggsave(filename = "FigureS3.pdf", plot = figS3,
+       device = cairo_pdf, path = file.path(outDir, "Figures"),
+       width = 5, height = 6.5, units = "in", dpi = 350)
+
+# save to PNG for MS
+ggsave(filename = "FigureS3.png", plot = figS3,
+       device = "png", type = "cairo", path = file.path(outDir, "Figures"),
+       bg = "white", width = 5, height = 6.5, units = "in", dpi = 350)
+
+# plot
+figS3 + labs(caption = "Figure S3 - Distance to climate analogue under RCP 4.5 and RCP 8.5")
+```
+
+With differences between the two RCP scenarios showing grid cell differences of `r floor(min(global(r[["DeltaDist"]], min, na.rm=TRUE)))` to `r ceiling(max(global(r[["DeltaDist"]], max, na.rm=TRUE)))` km between the two scenarios. On average however, under RCP 8.5 species in hotspots will have to move an additional `r round(mean(as.vector(values(r[["DeltaDist"]])), na.rm = TRUE))` km to find climate analogues.
+
+```{r plotDistDelta, echo = TRUE, fig.show='asis', fig.cap="Differences between distances to climate analogues under RCP 4.5 and RCP 8.5", fig.align='center', fig.height=5, fig.width=9}
+ggplot() +
+  geom_raster(data = rdf[variable == "DeltaDist",], aes(x, y, fill = value)) +
+  geom_sf(data = land_prj, size = 0.25,
+          inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
+  geom_sf(data = regions_prj, size = 0.5,
+          inherit.aes = FALSE, fill = NA, colour = "grey40") +
+  geom_sf(data = coast_prj, size = 0.25,
+          inherit.aes = FALSE, fill = "#E9E9E9", colour = "black") +
+  geom_sf(data = bbox_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "black") +
+  scale_fill_gradientn(colours = cptcity::cpt("cmocean_curl", 100),
+                       limits = c(-3000, 3000),
+                       labels = function(x) ifelse(test = (seq(-3000, 3000, by = 500)/500) %% 2 == 0, x, ""),
+                       breaks = seq(-3000, 3000, by = 500),
+                       oob = scales::squish,
+                       guide = guide_colourbar(
+                         title = "Difference (RCP 8.5 - RCP 4.5; km)",
+                         title.position = "top",
+                         title.hjust = 0.5,
+                         title.theme = element_text(size = 12, colour = "black"),
+                         label.position = "bottom",
+                         label.hjust = 0.5,
+                         label.theme = element_text(size = 12, colour = "black"),
+                         barwidth = 15,
+                         barheight = 0.5,
+                         nbin = 100,
+                         frame.colour = "black",
+                         frame.linewidth = 0.5
+                       )) +
+  coord_sf(expand = FALSE) +
+  cowplot::theme_map() +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.direction = "horizontal",
+        strip.text.x = element_text(size = 12, colour = "black"))
+```
+
+## Maximum distance within each region
+
+Here we determine the maximum distance within each biogeographic region, to see if species in hotspots within those regions will potentially need to move further than the maximum size of their bioregion.
+
+```{r maxsizeRegions, results='markup'}
+# intersect hotspots with regions
+hs_int <- st_transform(
+  st_intersection(st_buffer(
+    st_transform(hotspots, crs = "EPSG:32662"), 0),
+    st_buffer(st_transform(regions[3], crs = "EPSG:32662"), 0)),
+  "EPSG:4326")
+st_agr(hs_int) <- "constant"
+
+# Area of intersected hotspots in km^2
+hs_int$Area <- set_units(st_area(hs_int), "km^2")
+
+# Area of 2.5° grid cells at 0° lat == 77270.818 km2
+## remove intersected hotspots that have less than 3 cells of area
+hs_int <- hs_int[hs_int$Area >= as_units(231813, "km^2"), ]
+
+# Keep only the regions that contain hotspots
+regions_w_hs <- regions[regions$Name %in% hs_int$Name, ]
+
+# Iterate through each region and calculate the maximum distance between all vertices
+## Need to project each polygon to an equal area localised projection
+distances <- sapply(unique(regions_w_hs$Name), FUN = function(name, ...) {
+  # subset region and extract centroid
+  sub <- regions_w_hs[regions_w_hs$Name == name, ]
+  cc <- suppressWarnings(st_coordinates(st_centroid(sub)))
+  # need to project
+  sub_prj <- sprintf("+proj=laea +lon_0=%s +lat_0=%s +datum=WGS84 +units=m +no_defs", 
+                     cc[1], cc[2])
+  sub <- st_transform(sub, sub_prj)
+  # simplify to a convex hull
+  sub_simp <- st_simplify(st_convex_hull(sub), dTolerance = 50*1000)
+  # distances between vertices of convex hull
+  ## projected data so can use Euc. dist
+  dist_m <- dist(st_coordinates(sub_simp))
+  ## max dist in km
+  dist_m <- max(dist_m)/1000
+  return(dist_m)
+})
+
+# add the distances
+regions_w_hs$Distances <- distances
+
+# Extract the Min,Max,Mean distances from the climate analogues
+regions_w_hs$RCP45Min <- round(extract(analogue_dist[["RCP45"]], y = vect(regions_w_hs),
+                                 fun = min, na.rm = TRUE)[,2])
+regions_w_hs$RCP45Max <- round(extract(analogue_dist[["RCP45"]], y = vect(regions_w_hs),
+                                 fun = max, na.rm = TRUE)[,2])
+regions_w_hs$RCP45Mean <- round(extract(analogue_dist[["RCP45"]], y = vect(regions_w_hs),
+                                 fun = mean, na.rm = TRUE)[,2])
+regions_w_hs$RCP85Min <- round(extract(analogue_dist[["RCP85"]], y = vect(regions_w_hs),
+                                 fun = min, na.rm = TRUE)[,2])
+regions_w_hs$RCP85Max <- round(extract(analogue_dist[["RCP85"]], y = vect(regions_w_hs),
+                                 fun = max, na.rm = TRUE)[,2])
+regions_w_hs$RCP85Mean <- round(extract(analogue_dist[["RCP85"]], y = vect(regions_w_hs),
+                                 fun = mean, na.rm = TRUE)[,2])
+
+# Maximum distances are all < than the maximum distance within the region
+regions_w_hs[, c("Name", "Distances", "RCP45Max", "RCP85Max")]
+```
+
+The results show that all distances are within the maximum distances within each of the bioregions. However, the target cell containing the climate analogue may be within a different bioregion.
+
+## Change in bioregion
+
+For each cell in the `analogue_dist` raster, we can extract the bioregion. As we know the target cell containing the climate analogue we can also check to see if the cell containing the analogue is the same.
+
+```{r newRegion, results='markup'}
+# Rasterise the bioregions
+bio_ras <- rasterize(vect(regions[1]), y = analogue_dist[[1]],
+                     field = "Realm")
+# Regions
+cell_reg <- extract(bio_ras, xyFromCell(bio_ras, hco_ca85$focal), 
+                    method = "simple")
+# Analogue regions
+an45_reg <- extract(bio_ras, xyFromCell(bio_ras, hco_ca45$target), 
+                    method = "simple")
+an85_reg <- extract(bio_ras, xyFromCell(bio_ras, hco_ca85$target), 
+                    method = "simple")
+
+Dif45 <- na.omit(cbind(
+  # start
+  xyFromCell(bio_ras, hco_ca45$focal),
+  # finish
+  xyFromCell(bio_ras, hco_ca45$target),
+  # start realm
+  cell_reg$Realm,
+  # finish realm
+  an45_reg$Realm))
+
+Dif85 <- na.omit(cbind(xyFromCell(bio_ras, hco_ca85$focal),
+                       xyFromCell(bio_ras, hco_ca85$target),
+                       cell_reg$Realm,
+                       an85_reg$Realm))
+
+colnames(Dif45) <- colnames(Dif85) <- c("XS", "YS", "XE", "YE", "SR", "ER")
+
+# Is the start realm (SR) the same as the analogue realm (ER)
+Dif45_prop <- ifelse(Dif45[, "SR"] == Dif45[, "ER"], 1, 0)
+Dif85_prop <- ifelse(Dif85[, "SR"] == Dif85[, "ER"], 1, 0)
+
+# Percentage of hotspot cells where the climate analogue is in a different bioregion
+round(prop.table(table(as.factor(Dif45_prop)))*100)
+round(prop.table(table(as.factor(Dif85_prop)))*100)
+```
+
+The results show that `r round(prop.table(table(as.factor(Dif45_prop)))*100)[1]`% of hotspot cells will have to move to a new bioregion to find a climate analogue under RCP 4.5. This increases to `r round(prop.table(table(as.factor(Dif85_prop)))*100)[1]`% under RCP 8.5.
+
+## Plot the movement
+
+We can also plot the displacement for each marine hotspot that has a climate analogue in the future
+
+```{r vectDisp, echo = TRUE, results='hide', fig.show='asis', out.width='100%', fig.align='center', fig.height=5, fig.width=9}
+# Only keep points in hotspot locations
+dif45sf <- st_as_sf(as.data.frame(Dif45), coords = c("XS", "YS"),
+                    crs = "EPSG:4326")
+dif45_int <- st_transform(st_as_sf(erase.point(y = as_Spatial(st_transform(dif45sf, crs = "EPSG:32662")),
+                                  x = as_Spatial(st_transform(hotspots, crs = "EPSG:32662")),
+                                  inside = FALSE)),
+                          crs = "EPSG:4326")
+dif45_int$XS <- st_coordinates(dif45_int)[,1]
+dif45_int$YS <- st_coordinates(dif45_int)[,2]
+dif45_intPrj <- st_transform(dif45_int, crs = mollPrj)
+dif45_int <- as.data.frame(dif45_int)
+
+dif85sf <- st_as_sf(as.data.frame(Dif85), coords = c("XS", "YS"),
+                    crs = "EPSG:4326")
+dif85_int <- st_as_sf(erase.point(y = as_Spatial(dif85sf),
+                                  x = as_Spatial(hotspots),
+                                  inside = FALSE))
+dif85_int$XS <- st_coordinates(dif85_int)[,1]
+dif85_int$YS <- st_coordinates(dif85_int)[,2]
+dif85_intPrj <- st_transform(dif85_int, crs = mollPrj)
+dif85_int <- as.data.frame(dif85_int)
+
+vect45 <- st_transform(
+  st_as_sf(gcIntermediate(dif45_int[, c("XS", "YS")],
+                          dif45_int[, c("XE", "YE")],
+                          n = 30, addStartEnd = TRUE, 
+                          breakAtDateLine = TRUE, sp = TRUE)),
+  crs = mollPrj)
+vect85 <- st_transform(
+  st_as_sf(gcIntermediate(dif85_int[, c("XS", "YS")],
+                          dif85_int[, c("XE", "YE")],
+                          n = 30, addStartEnd = TRUE, 
+                          breakAtDateLine = TRUE, sp = TRUE)),
+  crs = mollPrj)
+
+vect45$Scen <- "RCP45"
+vect85$Scen <- "RCP85"
+
+vects <- rbind(vect45, vect85)
+
+figS4 <- ggplot() +
+  geom_sf(data = land_prj, size = 0.25,
+          inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
+  geom_sf(data = hotspots_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "black") +
+  geom_sf(data = vects, aes(colour = Scen), size = 1, #colour = "#D6BE6983",
+          inherit.aes = FALSE, show.legend = TRUE) +
+  scale_colour_manual(values = c("RCP45" = "#D6BE6983",
+                                  "RCP85" = "#D66A5E83"),
+                      labels = c("RCP45" = "RCP 4.5",
+                                  "RCP85" = "RCP 8.5"),
+                        guide = guide_legend(
+                         title = "",
+                         title.position = "top",
+                         title.hjust = 0.5,
+                         title.theme = element_blank(),
+                         label.position = "bottom",
+                         label.hjust = 0.5,
+                         label.theme = element_text(size = 12, colour = "black"),
+                         keywidth = unit(3, "mm"),
+                         keyheight = unit(3, "mm"),
+                         direction = "horizontal",
+                         nrow = 1
+                       )) +
+  geom_sf(data = coast_prj, size = 0.25,
+          inherit.aes = FALSE, fill = "#E9E9E9", colour = "black") +
+  geom_sf(data = bbox_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "black") +
+  geom_sf(data = regions_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "grey40") +
+  coord_sf(expand = FALSE) +
+  cowplot::theme_map() +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.direction = "horizontal")
+# save to PDF
+ggsave(filename = "FigureS4.pdf", plot = figS4,
+       device = cairo_pdf, path = file.path(outDir, "Figures"),
+       width = 7, height = 5, units = "in", dpi = 350)
+
+# save to PNG for MS
+ggsave(filename = "FigureS4.png", plot = figS4,
+       device = "png", type = "cairo", path = file.path(outDir, "Figures"),
+       bg = "white", width = 7, height = 5, units = "in", dpi = 350)
+
+# plot
+figS4 + labs(caption = "Figure S4 - Dispersal from hotspot locations to climate analogues under RCP 4.5 and RCP 8.5")
+```
+
+## Near shore displacement
+
+Here we repeat the analysis above, but consider only cells within 200 nautical miles (370 km) of coastlines - that is, cells within Exclusive Economic Zones.
+
+```{r voccDispNearShore, warning=FALSE, message=FALSE, results='markup'}
+# RCP 45
+worldSST_rcp45_eez <- as(mask(rast(list(hco, rcp45, hco_sd)), mask = vect(eez)), "Raster")
+names(worldSST_rcp45_eez) <- c("MnSST_HCO", "MnSST_RCP45", "sdSST_HCO")
+clim45ns <- na.omit(data.frame(getValues(worldSST_rcp45_eez), cid = 1:ncell(worldSST_rcp45_eez)))
+clim45ns[, c("x","y")] <- xyFromCell(worldSST_rcp45_eez, clim45ns$cid)
+
+# RCP 85
+worldSST_rcp85_eez <- as(mask(rast(list(hco, rcp85, hco_sd)), mask = vect(eez)), "Raster")
+names(worldSST_rcp85_eez) <- c("MnSST_HCO", "MnSST_RCP85", "sdSST_HCO")
+clim85ns <- na.omit(data.frame(getValues(worldSST_rcp85_eez), cid = 1:ncell(worldSST_rcp85_eez)))
+clim85ns[, c("x","y")] <- xyFromCell(worldSST_rcp85_eez, clim85ns$cid)
+
+# climate velocity and distance to analogues under RCP 4.5
+## constrained to EEZ
+hco_ca45_eez <- dVoCC(clim45ns, n = 1, tdiff = 7140, method = "Variable", climTol = NA,
+                      geoTol = Inf, distfun = "GreatCircle", trans = NA, lonlat = TRUE)
+
+# climate velocity and distance to analogues under RCP 8.5
+## constrained to EEZ
+hco_ca85_eez <- dVoCC(clim85ns, n = 1, tdiff = 7140, method = "Variable", climTol = NA,
+                      geoTol = Inf, distfun = "GreatCircle", trans = NA, lonlat = TRUE)
+
+# Distances masked to hotspots only
+analogue_dist_eez <- worldSST_rcp85_eez[[c(1,1,1,1)]]
+names(analogue_dist_eez) <- c("RCP45", "RCP85", "RCP45Tar", "RCP85Tar")
+analogue_dist_eez[["RCP45"]][hco_ca45_eez$focal] <- hco_ca45_eez$geoDis
+analogue_dist_eez[["RCP85"]][hco_ca85_eez$focal] <- hco_ca85_eez$geoDis
+# Target cell containing the climate analogue
+## can extract bioregion using these values
+analogue_dist_eez[["RCP45Tar"]][hco_ca45_eez$focal] <- hco_ca45_eez$target
+analogue_dist_eez[["RCP85Tar"]][hco_ca85_eez$focal] <- hco_ca85_eez$target
+# Mask to hotspot cells
+analogue_dist_eez <- as(analogue_dist_eez, "SpatRaster")
+analogue_dist_eez <- mask(analogue_dist_eez, rhs)
+analogue_dist_eez
+
+writeRaster(analogue_dist_eez,
+            file.path(outDir, "climate_analogue_distances_EEZ_wgs84.grd"),
+            overwrite = TRUE)
+
+global(analogue_dist_eez[[c("RCP45", "RCP85")]], mean, na.rm = TRUE)
+global(analogue_dist_eez[[c("RCP45", "RCP85")]], sd, na.rm = TRUE)
+```
+
+Plotting up the analysis where analogue climates need to exist inside the EEZ boundaries shows the following. Note the scale difference between this plot and the earlier one.
+
+```{r plotDistEEZ, echo = TRUE, fig.show='asis', fig.cap="Distance to climate analogues under RCP 4.5 and RCP 8.5 constrained to EEZ", fig.align='center', fig.height=10, fig.width=9, results='hide'}
+# Projected distance map
+r <- analogue_dist_eez[[c(1:2)]]
+r[["DeltaDist"]] <- r[["RCP85"]] - r[["RCP45"]]
+rdf <- project(r, templ_ras, method = "bilinear")
+rdf <- melt(setDT(as.data.frame(rdf, xy = TRUE)), id.vars = c("x", "y"))
+rdf[, variable := factor(variable, levels = c("RCP45", "RCP85", "DeltaDist"))]
+
+# projected shapefiles for aesthetics
+eez_prj <- read_sf(file.path(outDir, "shapes/eez_buffer.shp"))
+
+figS5 <- ggplot() +
+  geom_tile(data = rdf[variable != "DeltaDist",], aes(x, y, fill = value)) +
+  facet_wrap(~variable, ncol = 1,
+             labeller = as_labeller(c("RCP45" = "RCP 4.5",
+                                      "RCP85" = "RCP 8.5"))) +
+  geom_sf(data = land_prj, size = 0.25,
+          inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
+  geom_sf(data = regions_prj, size = 0.5,
+          inherit.aes = FALSE, fill = NA, colour = "grey40") +
+  geom_sf(data = eez_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "#91608D") +
+  geom_sf(data = coast_prj, size = 0.25,
+          inherit.aes = FALSE, fill = "#E9E9E9", colour = "black") +
+  geom_sf(data = bbox_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "black") +
+  scale_fill_gradientn(colours = cptcity::cpt("jjg_cbac_seq_cbacYlGnBu09", 100),
+                       limits = c(0, 6500),
+                       labels = function(x) ifelse(test = (seq(0, 6500, by = 500)/500) %% 2 == 0, x, ""),
+                       breaks = seq(0, 6500, by = 500),
+                       oob = scales::squish,
+                       guide = guide_colourbar(
+                         title = "Distance to analogue climate (km)\nconstrained to EEZ only",
+                         title.position = "top",
+                         title.hjust = 0.5,
+                         title.theme = element_text(size = 12, colour = "black"),
+                         label.position = "bottom",
+                         label.hjust = 0.5,
+                         label.theme = element_text(size = 12, colour = "black"),
+                         barwidth = 18,
+                         barheight = 0.5,
+                         nbin = 100,
+                         frame.colour = "black",
+                         frame.linewidth = 0.5
+                       )) +
+  coord_sf(expand = FALSE) +
+  cowplot::theme_map() +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.direction = "horizontal",
+        strip.text.x = element_text(size = 12, colour = "black", hjust = 0))
+# save to PDF
+ggsave(filename = "FigureS5.pdf", plot = figS5,
+       device = cairo_pdf, path = file.path(outDir, "Figures"),
+       width = 5, height = 6.5, units = "in", dpi = 350)
+
+# save to PNG for MS
+ggsave(filename = "FigureS5.png", plot = figS5,
+       device = "png", type = "cairo", path = file.path(outDir, "Figures"),
+       bg = "white", width = 5, height = 6.5, units = "in", dpi = 350)
+
+# plot
+figS5 + labs(caption = "Figure S5 - Distance to climate analogue under RCP 4.5 and RCP 8.5 constrained to cells in EEZ only")
+```
+
+Differences between the two scenarios are much greater when the analysis is restricted to EEZ only (not the scale difference between this plot, and the previous plot of differences). Looking only at the EEZ we see differences between the two RCP scenarios of `r floor(min(global(r[["DeltaDist"]], min, na.rm=TRUE)))` to `r ceiling(max(global(r[["DeltaDist"]], max, na.rm=TRUE)))` km between the two scenarios. On average however, under RCP 8.5 species in hotspots will have to move an additional `r round(mean(as.vector(values(r[["DeltaDist"]])), na.rm = TRUE))` km to find climate analogues.
+
+```{r deltaDistEEZ, echo = TRUE, fig.show='asis', fig.cap="Differences between distances to climate analogues under RCP 4.5 and RCP 8.5", fig.align='center', fig.height=5, fig.width=9}
+ggplot() +
+  geom_tile(data = rdf[variable == "DeltaDist",], aes(x, y, fill = value)) +
+  geom_sf(data = land_prj, size = 0.25,
+          inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
+  geom_sf(data = regions_prj, size = 0.5,
+          inherit.aes = FALSE, fill = NA, colour = "grey40") +
+  geom_sf(data = eez_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "#91608D") +
+  geom_sf(data = coast_prj, size = 0.25,
+          inherit.aes = FALSE, fill = "#E9E9E9", colour = "black") +
+  geom_sf(data = bbox_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "black") +
+  scale_fill_gradientn(colours = cptcity::cpt("cmocean_curl", 100),
+                       limits = c(-5000, 5000),
+                       labels = function(x) ifelse(test = (seq(-5000, 5000, by = 1000)/1000) %% 2 == 0, x, ""),
+                       breaks = seq(-5000, 5000, by = 1000),
+                       oob = scales::squish,
+                       guide = guide_colourbar(
+                         title = "Difference (RCP 8.5 - RCP 4.5; km)",
+                         title.position = "top",
+                         title.hjust = 0.5,
+                         title.theme = element_text(size = 12, colour = "black"),
+                         label.position = "bottom",
+                         label.hjust = 0.5,
+                         label.theme = element_text(size = 12, colour = "black"),
+                         barwidth = 15,
+                         barheight = 0.5,
+                         nbin = 100,
+                         frame.colour = "black",
+                         frame.linewidth = 0.5
+                       )) +
+  coord_sf(expand = FALSE) +
+  cowplot::theme_map() +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.direction = "horizontal",
+        strip.text.x = element_text(size = 12, colour = "black"))
+```
+
+As before, for each cell in the `analogue_dist_eez` raster, we can extract the bioregion. As we know the target cell containing the climate analogue we can also check to see if the cell containing the analogue is the same.
+
+```{r newRegionEEZ, results='markup'}
+# Rasterise the bioregions
+bio_ras <- rasterize(vect(regions[1]), y = analogue_dist_eez[[1]],
+                     field = "Realm")
+# Regions
+cell_reg <- extract(bio_ras, xyFromCell(bio_ras, hco_ca85_eez$focal), 
+                    method = "simple")
+# Analogue regions
+an45_reg_eez <- extract(bio_ras, xyFromCell(bio_ras, hco_ca45_eez$target), 
+                        method = "simple")
+an85_reg_eez <- extract(bio_ras, xyFromCell(bio_ras, hco_ca85_eez$target), 
+                        method = "simple")
+
+Dif45_eez <- na.omit(cbind(
+  # start
+  xyFromCell(bio_ras, hco_ca45_eez$focal),
+  # finish
+  xyFromCell(bio_ras, hco_ca45_eez$target),
+  # start realm
+  cell_reg$Realm,
+  # finish realm
+  an45_reg_eez$Realm))
+
+Dif85_eez <- na.omit(cbind(xyFromCell(bio_ras, hco_ca85_eez$focal),
+                           xyFromCell(bio_ras, hco_ca85_eez$target),
+                           cell_reg$Realm,
+                           an85_reg_eez$Realm))
+
+colnames(Dif45_eez) <- colnames(Dif85_eez) <- c("XS", "YS", "XE", "YE", "SR", "ER")
+
+# Is the start realm (SR) the same as the analogue realm (ER)
+Dif45_prop_eez <- ifelse(Dif45_eez[, "SR"] == Dif45_eez[, "ER"], 1, 0)
+Dif85_prop_eez <- ifelse(Dif85_eez[, "SR"] == Dif85_eez[, "ER"], 1, 0)
+
+# Percentage of hotspot cells where the climate analogue is in a different bioregion
+round(prop.table(table(as.factor(Dif45_prop_eez)))*100)
+round(prop.table(table(as.factor(Dif85_prop_eez)))*100)
+```
+
+```{r vectDispEEZ, echo = TRUE, results='hide', fig.show='asis', out.width='100%', fig.align='center', fig.height=5, fig.width=9}
+# Only keep points in hotspot locations
+dif45eezsf <- st_as_sf(as.data.frame(Dif45_eez), coords = c("XS", "YS"),
+                    crs = "EPSG:4326")
+dif45eez_int <- st_transform(st_as_sf(erase.point(y = as_Spatial(st_transform(dif45eezsf, crs = "EPSG:32662")),
+                                  x = as_Spatial(st_transform(hotspots, crs = "EPSG:32662")),
+                                  inside = FALSE)),
+                          crs = "EPSG:4326")
+dif45eez_int$XS <- st_coordinates(dif45eez_int)[,1]
+dif45eez_int$YS <- st_coordinates(dif45eez_int)[,2]
+dif45eez_intPrj <- st_transform(dif45eez_int, crs = mollPrj)
+dif45eez_int <- as.data.frame(dif45eez_int)
+
+dif85eezsf <- st_as_sf(as.data.frame(Dif85_eez), coords = c("XS", "YS"),
+                    crs = "EPSG:4326")
+dif85eez_int <- st_transform(st_as_sf(erase.point(y = as_Spatial(st_transform(dif85eezsf, crs = "EPSG:32662")),
+                                  x = as_Spatial(st_transform(hotspots, crs = "EPSG:32662")),
+                                  inside = FALSE)),
+                          crs = "EPSG:4326")
+dif85eez_int$XS <- st_coordinates(dif85eez_int)[,1]
+dif85eez_int$YS <- st_coordinates(dif85eez_int)[,2]
+dif85eez_intPrj <- st_transform(dif85eez_int, crs = mollPrj)
+dif85eez_int <- as.data.frame(dif85eez_int)
+
+vect45eez <- st_as_sf(gcIntermediate(dif45eez_int[, c("XS", "YS")],
+                          dif45eez_int[, c("XE", "YE")],
+                          n = 30, addStartEnd = TRUE, 
+                          breakAtDateLine = TRUE, sp = TRUE))
+vect85eez <- st_as_sf(gcIntermediate(dif85eez_int[, c("XS", "YS")],
+                          dif85eez_int[, c("XE", "YE")],
+                          n = 30, addStartEnd = TRUE, 
+                          breakAtDateLine = TRUE, sp = TRUE))
+
+vect45eez$Scen <- "RCP45"
+vect85eez$Scen <- "RCP85"
+
+vectseez <- rbind(vect45eez, vect85eez)
+
+# Projected lines from ArcGIS - issue with wrapping caused
+# by pacific centered projection?
+# try plot(vectseez); plot(st_transform(vectseez, "proj")) to see the issue
+
+vectseez <- read_sf(file.path(outDir, "shapes/hs_eez_displacement.shp"))
+
+figS6 <- ggplot() +
+  geom_sf(data = land_prj, size = 0.25,
+          inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
+  geom_sf(data = hotspots_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "black") +
+  geom_sf(data = eez_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "#91608D") +
+  
+  geom_sf(data = vectseez, aes(colour = Scen), size = 1, #colour = "#D6BE6983",
+          inherit.aes = FALSE, show.legend = TRUE) +
+  scale_colour_manual(values = c("RCP45" = "#D6BE6983",
+                                  "RCP85" = "#D66A5E83"),
+                      labels = c("RCP45" = "RCP 4.5",
+                                  "RCP85" = "RCP 8.5"),
+                        guide = guide_legend(
+                         title = "",
+                         title.position = "top",
+                         title.hjust = 0.5,
+                         title.theme = element_blank(),
+                         label.position = "bottom",
+                         label.hjust = 0.5,
+                         label.theme = element_text(size = 12, colour = "black"),
+                         keywidth = unit(3, "mm"),
+                         keyheight = unit(3, "mm"),
+                         direction = "horizontal",
+                         nrow = 1
+                       )) +
+  geom_sf(data = coast_prj, size = 0.25,
+          inherit.aes = FALSE, fill = "#E9E9E9", colour = "black") +
+  geom_sf(data = bbox_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "black") +
+  geom_sf(data = regions_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "grey40") +
+  coord_sf(expand = FALSE) +
+  cowplot::theme_map() +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.direction = "horizontal")
+# save to PDF
+ggsave(filename = "FigureS6.pdf", plot = figS6,
+       device = cairo_pdf, path = file.path(outDir, "Figures"),
+       width = 7, height = 5, units = "in", dpi = 350)
+
+# save to PNG for MS
+ggsave(filename = "FigureS6.png", plot = figS6,
+       device = "png", type = "cairo", path = file.path(outDir, "Figures"),
+       bg = "white", width = 7, height = 5, units = "in", dpi = 350)
+
+# plot
+figS6 + labs(caption = "Figure S6 - Dispersal from hotspot locations to climate analogues under RCP 4.5 and RCP 8.5 restricted to EEZ")
+```
+
+## References

@@ -1,0 +1,890 @@
+---
+title: "04 - Calculate Overlap"
+author: "Stuart Brown"
+output: 
+  html_document: 
+    theme: flatly
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+    fig_width: 7
+    fig_height: 5
+    fig_caption: yes
+    number_sections: no
+    keep_md: yes
+    df_print: paged
+    code_folding: show
+    highlight: tango
+bibliography: references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, rows.print = 10, cols.print = 10,
+                      rownames.print = FALSE, warning = FALSE,
+                      message = FALSE, eval = TRUE, results = "markup", 
+                      error = FALSE, strip.white = TRUE,
+                      tidy = "styler", dpi = 320, fig.align = "center",
+                      strip.white = TRUE, 
+                      dev.args = list(png  = list(type = "cairo")),
+                      root.dir = "/mnt/c/OceanStability")
+```
+
+## Read in the data
+
+Here we read in the climate data which we used to determine overlap. A number of other datasets are read in for plotting etc.
+
+```{r importData, results='markup'}
+library(data.table)
+library(Hmisc)
+library(terra)
+library(sf)
+library(units)
+library(ggplot2)
+library(gtools)
+library(rnaturalearth)
+library(overlapping)
+library(cowplot)
+library(ggpattern)
+library(patchwork)
+library(magick)
+library(cptcity)
+
+# function to round to arbitrary number
+round_any <- function(x, accuracy, f = round) {f(x / accuracy) * accuracy}
+
+# Output path
+outDir <- "/mnt/c/OceanStability"
+
+# Coastlines and aesthetics
+coastlines <- ne_coastline(50, returnclass = "sf")
+land <- ne_countries(50, returnclass = "sf")
+oceans <- read_sf(file.path(outDir, "ne_50m_ocean.shp"))
+
+# Marine realms from Costello et al
+## need to source
+## available from https://auckland.figshare.com/articles/GIS_shape_files_of_realm_maps/5596840
+regions <- read_sf("/mnt/c/Shapes/MarineRealmsShapeFile/MarineRealms.shp")
+
+st_agr(oceans) <- "constant"
+st_agr(regions) <- "constant"
+
+# Crop regions to oceans
+regions <- st_transform(
+  # project to plate-carree before intersecting
+  # add 0 buffer to avoid TopologyException error
+  st_intersection(st_buffer(st_transform(regions, crs = "EPSG:32662"), 0),
+                  st_buffer(st_transform(oceans[2], crs = "EPSG:32662"), 0)),
+  crs = "EPSG:4326")
+
+# Area of each region in km^2
+regions$Area <- set_units(st_area(regions), "km^2")
+
+# 2.5° Ocean mask
+ocean_mask <- read_sf(file.path(outDir, "ne_50m_ocean.shp"))
+ocean_mask <- rasterize(x = vect(ocean_mask), 
+                        y = rast(resolution = 2.5, crs = "EPSG:4326",
+                                 extent = c(-180,180,-90,90)), 
+                        cover = TRUE)
+ocean_mask[ocean_mask < 0.85] <- NA
+ocean_mask[!is.na(ocean_mask)] <- 1
+
+# Climate data masked to oceans only
+## RCP
+r45 <- mask(rast(file.path(outDir, "rcp45_rasters_ocean_warming.grd"))[["stSNR_ocn_warm"]], 
+            mask = ocean_mask)
+r85 <-  mask(rast(file.path(outDir, "rcp85_rasters_ocean_warming.grd"))[["stSNR_ocn_warm"]], 
+            mask = ocean_mask)
+rcp_snr <- rast(list(r45, r85))
+names(rcp_snr) <- c("RCP45", "RCP85")
+
+## Paleo
+paleo_snr <- mask(rast(file.path(outDir, "paleo_rasters_ocean_warming.grd"))[["stSNR_ocn_warm"]], 
+            mask = ocean_mask)
+names(paleo_snr) <- "TraCE"
+
+## combined
+snr_comb <- rast(list(paleo_snr, rcp_snr))
+snr_comb
+```
+
+A plot of the climate data shows us the following (we saw a similar plot in **01 - StableClim Extract**)
+
+```{r plotSNR, echo = TRUE, fig.show='asis', fig.cap="SNR values for the past and two future scenarios", fig.align='center', fig.height=5, fig.width=9}
+xdf <- melt(setDT(as.data.frame(rast(list(paleo_snr, rcp_snr)),
+                                xy = TRUE)), id.vars = c("x", "y"))
+xdf[, variable := factor(variable, levels = c("TraCE", "RCP45", "RCP85"))]
+ggplot() +
+  geom_raster(data = xdf, aes(x, y, fill = value)) +
+  facet_wrap(~variable, ncol = 2) +
+  scale_fill_gradientn(colours = hcl.colors(100, "Temps"),
+                       limits = c(0, 6.0),
+                       labels = c("Low","", "High"),
+                       breaks = c(0, 3, 6.0),
+                       oob = scales::squish,
+                       guide = guide_colourbar(
+                         title = "SNR",
+                         title.position = "top",
+                         title.hjust = 0.5,
+                         title.theme = element_text(size = 12, colour = "black"),
+                         label.position = "bottom",
+                         label.hjust = 0.5,
+                         label.theme = element_text(size = 12, colour = "black"),
+                         barwidth = 10,
+                         barheight = 0.5,
+                         nbin = 100,
+                         frame.colour = "black",
+                         frame.linewidth = 0.5
+                       )) +
+  geom_sf(data = land, colour = NA, fill = "grey85", inherit.aes = FALSE) +
+  geom_sf(data = coastlines, colour = "black", fill = NA, inherit.aes = FALSE) +
+  coord_sf(xlim = c(-180,180), ylim = c(-90,90),
+           expand = FALSE) +
+  cowplot::theme_map() +
+  theme(legend.position = c(0.75, 0.25),
+        legend.justification = "center",
+        legend.direction = "horizontal",
+        strip.text.x = element_text(size = 12, colour = "black"))
+```
+
+## Extract SNR for biogeographic realms
+
+Here we need to extract the SNR across all three scenarios within each biogeographic realm. The SNR values are then normalised to `{0, 1}` across time before the overlap within each realm is calculated.
+
+```{r extractSNR, results='hide', eval = TRUE, message=FALSE}
+# Data.table of Region numbers and corresponding name
+reg_name <- data.table(
+  Realm = c(1L:30L),
+  Name = c("Inner Baltic Sea","Black Sea","NE Atlantic",
+           "Norwegian Sea","Mediterranean","Artic Seas",
+           "N Pacific","N American Boreal",
+           "mid-tropical N Pacific","SE Pacific",
+           "Caribbean & Gulf of Mexico","Gulf of California",
+           "Indo-Pacific seas & Indian Ocean",
+           "Gulfs of Aqaba, Aden, Suez, Red Sea","Tasman Sea","Coral Sea",
+           "Mid South Tropical Pacific",
+           "Offshore & NW North Atlantic","Offshore Indian Ocean",
+           "Offshore W Pacific","Offshore S Atlantic",
+           "Offshore mid-E Pacific","Gulf of Guinea",
+           "Rio de La Plata","Chile","S Australia",
+           "S Africa","New Zealand","N W Pacific",
+           "Southern Ocean"))
+
+# Merge region names
+regions <- merge(regions, reg_name, by = "Realm")
+
+realms <- unique(regions$Name)
+
+# iterate through each realm and return a data.table of SNR values
+reg_SNR <- lapply(realms, function(r) {
+  sub <- regions[regions$Name == r, ]
+  st_agr(sub) <- "constant"
+  templ_ras <- rast(resolution = 2.5, crs = "EPSG:4326",
+                    ## round bbox coord to 2.5°
+                    xmin = round_any(st_bbox(sub)[1], 2.5), 
+                    xmax = round_any(st_bbox(sub)[3], 2.5),
+                    ymin = round_any(st_bbox(sub)[2], 2.5),
+                    ymax = round_any(st_bbox(sub)[4], 2.5))
+  sub <- rasterize(vect(sub), y = templ_ras, cover = TRUE)
+  # only keep cells that have >= 15% cover
+  sub[sub >= 0.15] <- 1
+  sub[sub != 1] <- NA
+  # Crop the raster data and mask
+  snr_prj <- mask(x = crop(snr_comb, sub),
+                  mask = sub)
+  # Rescale values to {0, 1} across time
+  sMax <- max(as.vector(global(snr_prj, "max", na.rm = TRUE)[,1]))
+  sMin <- min(as.vector(global(snr_prj, "min", na.rm = TRUE)[,1]))
+  snr_prj <- stretch(snr_prj, minv = 0, maxv = 1, smin = sMin, smax = sMax)
+  # convert to data.table
+  ext <- as.data.table(as.data.frame(snr_prj, xy = TRUE, na.rm = TRUE))
+  ext <- melt(ext, id.vars = c("x", "y"), value.name = "SNR", variable.name = "Scenario")
+  ext[, Region := r][, ID := 1:.N]
+  setcolorder(ext, c("ID", "x", "y", "Region", "Scenario", "SNR"))
+  return(ext)
+})
+
+# Covert list to data.table
+reg_SNR <- rbindlist(reg_SNR)
+setorder(reg_SNR, Region, ID)
+
+# Number of samples within each region
+nCells <- reg_SNR[, .(N = .N), by = c("Region", "Scenario")][Scenario == "TraCE", ]
+
+# Export to CSV
+fwrite(reg_SNR, file.path(outDir, "SNR_Cell.csv"))
+```
+
+We can see that the SNR values are lower in the paleo period, than under the two RCP scenarios. Also, SNR under RCP 8.5 is higher than that under RCP 4.5
+
+```{r SNRcomparison, fig.show='asis', fig.cap="SNR values within each region, standardised across time. n = number of cells in each region.", fig.align='center', fig.height=12, fig.width=12, out.width='100%'}
+ggplot(reg_SNR, aes(x = Scenario, y = SNR,
+                    group = interaction(Region, Scenario),
+                    fill = Scenario)) +
+  facet_wrap(~Region, ncol = 5, nrow = 6, scales = "fixed",
+             labeller = label_wrap_gen(width = 20)) +
+  geom_bar(position = "dodge", stat = "identity",
+           show.legend = FALSE) +
+  scale_fill_manual(values = c(
+    "TraCE" = "#a3be8c",
+    "RCP45" = "#d08770",
+    "RCP85" = "#bf616a")) +
+  scale_y_continuous(breaks = scales::pretty_breaks(5)(0:1),
+                     limits = c(0, 1),
+                     expand = expansion(mult = c(0, .10))) +
+  geom_text(data = nCells ,
+            aes(x = "TraCE", y = 1.0, label = sprintf("n = %.0f", N)),
+            colour = "black") +
+  theme_half_open(font_size = 10) +
+  panel_border() +
+  background_grid()
+```
+
+From the sample sizes in the plot above we'll exclude the following regions: (i) Black Sea; (ii) Gulfs of Aqaba, Aden, Suez, Red Sea; and (iii) Inner Baltic Sea, from any further analysis.
+
+## Histograms of overlap
+
+Here we'll generate density plots of SNR values within each region which can then be used to estimate the overlap between SNR values in the past and future under both RCP scenarios.
+
+```{r overlapHisto, fig.show='asis', fig.cap="Figure S2 - Density plots of SNR within each marine bioregion", fig.align='center', fig.height=12, fig.width=12, out.width='100%'}
+exc_reg <- nCells[N < 5, ][["Region"]]
+# Calculate median and quantiles for plotting
+# Calculate Q10, 50, and 90 to add to plot
+signif.lines <- reg_SNR[!Region %in% exc_reg, .(xMed = quantile(SNR, 0.5),
+                            x10 = quantile(SNR, 0.10),
+                            x90 = quantile(SNR, 0.90)),
+                        by = c("Scenario", "Region")]
+
+figs1 <- ggplot(data = reg_SNR[!Region %in% exc_reg, ],
+                    aes(x = SNR, #y = ..scaled..,
+                        colour = Scenario,
+                    group = interaction(Region, Scenario),
+                    fill = Scenario)) +
+  facet_wrap(~Region, ncol = 5, nrow = 6, scales = "free_y",
+             labeller = label_wrap_gen(width = 20)) +
+  geom_density(alpha = 1/3, position = "identity", 
+               size = 0.5, trim = TRUE,
+               kernel = "epanechnikov", bw = "SJ") +
+  scale_fill_manual(values = c(
+    "TraCE" = "#a3be8c",
+    "RCP45" = "#d08770",
+    "RCP85" = "#bf616a"),
+    guide = "legend") +
+  scale_colour_manual(values = c(
+    "TraCE" = "#a3be8c",
+    "RCP45" = "#d08770",
+    "RCP85" = "#bf616a")) +
+  scale_x_continuous(limits = c(0,1)) +
+  scale_y_continuous() +
+  geom_vline(data = signif.lines,
+             aes(xintercept = xMed, colour = Scenario,
+                 group = interaction(Region, Scenario)), size = 0.5,
+             show.legend = FALSE) +
+  theme_half_open(font_size = 10) +
+  panel_border() +
+  theme(legend.position = c(0.70, 0.05),
+        legend.direction = "horizontal",
+        legend.justification = "center",
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        panel.spacing = unit(0.5, "lines")) +
+  guides(fill = guide_legend(title.position = "top",
+                             title.hjust = 0.5,
+                             label.position = "bottom",
+                             label.hjust = 0.5,
+                             keywidth = unit(3, "mm"),
+                             keyheight = unit(3, "mm"),
+                             nrow = 1),
+         colour = guide_legend(title.position = "top",
+                             title.hjust = 0.5,
+                             label.position = "bottom",
+                             label.hjust = 0.5,
+                             keywidth = unit(3, "mm"),
+                             keyheight = unit(3, "mm"),
+                             nrow = 1)) +
+  labs(x = NULL)
+ggsave(filename = "FigureS1.png", plot = figs1,
+       device = "png", type = "cairo",
+       path = file.path(outDir, "Figures"),
+       width = 12, height = 12, units = "in",
+       dpi = 320, bg = "white")
+figs1
+```
+
+## Calculate overlap
+
+Here we'll calculate the overlap between past and future SNR for each region with each scenario.
+
+```{r calcOverlap, results='markup'}
+realms <- unique(regions$Name)
+# exclude the small realms
+realms <- realms[!realms %in% nCells[N < 5, ][["Region"]]]
+
+regional_overlap <- rbindlist(lapply(realms, function(r) {
+  sub <- reg_SNR[Region == r, ]
+  fut_DT <- rbindlist(lapply(c("RCP45", "RCP85"), function(future) {
+    rcp_SNR <- sub[Scenario %in% c("TraCE", future), ]
+    # paleo
+    dens_a <- rcp_SNR[Scenario == "TraCE", ][["SNR"]]
+    # RCP
+    dens_b <- rcp_SNR[Scenario != "TraCE", ][["SNR"]]
+    # Overlap
+    kde_over <- overlap(x = list(trace = dens_a, rcp = dens_b),
+                        nbins = 100, plot = FALSE,
+                        from = 0, to = 1,
+                        kernel = "epanechnikov", bw = "SJ")
+    # Kolmogorov-Smirnov Test
+    ## Test is sensitive to changes in shape, spread, or median.
+    ## Substantial differences in the above will result in a small P value
+    kde_KS <- ks.test(x = dens_a, y = dens_b, exact = TRUE)
+    # Stars for significance
+    stars <- stars.pval(kde_KS$p.value)
+    fut <- data.table(Region = r, Scenario = future,
+                         Overlap = round(kde_over$OV,2),
+                         KS = kde_KS$statistic,
+                         KS_P = kde_KS$p.value, 
+                         KS_S = stars)
+    return(fut)
+  }), use.names = TRUE)
+  return(fut_DT)
+}), use.names = TRUE)
+
+## adjust p-values
+regional_overlap[, KS_Padj := p.adjust(KS_P, method = "BY")
+                 ][, 
+                   KS_Sadj := gtools::stars.pval(KS_Padj)]
+
+# Save results to CSV
+fwrite(regional_overlap, file.path(outDir, "regional_overlap.csv"))
+fwrite(regional_overlap, file.path(outDir, "TableS1.csv"))
+
+# summary by scenario
+regional_overlap[, .(Max = max(Overlap),
+                     Min = min(Overlap),
+                     Mean = round(mean(Overlap), 2)),
+      by = "Scenario"]
+
+# summary by region
+regional_overlap[, .(Max = max(Overlap),
+                     Min = min(Overlap),
+                     Mean = round(mean(Overlap), 2)),
+      by = "Region"][order(-Max), ]
+
+```
+
+## Overlap raster
+
+Here we'll create a raster of overlap for both scenarios
+
+```{r overlapRaster, results='markup'}
+# 0.5° template raster for plotting
+templ_ras <- rast(res = 0.5, extent = ext(rast()), crs = "EPSG:4326")
+
+# Join RCP 4.5 overlap
+regions <- merge(regions, regional_overlap[Scenario == "RCP45", c("Region", "Overlap")],
+                 by.x = "Name", by.y = "Region")
+colnames(regions)[5] <- "RCP45_Overlap"
+
+# Join RCP 8.5 overlap
+regions <- merge(regions, regional_overlap[Scenario == "RCP85", c("Region", "Overlap")],
+                 by.x = "Name", by.y = "Region")
+colnames(regions)[6] <- "RCP85_Overlap"
+st_write(regions, file.path(outDir, "marine_regions_SNR_overlap_poly.shp"), 
+         append = FALSE, quiet = TRUE)
+
+# Convert to raster
+regions_overlap45 <- rasterize(vect(regions), y = templ_ras, 
+                               field = c("RCP45_Overlap"))
+regions_overlap85 <- rasterize(vect(regions), y = templ_ras, 
+                               field = c("RCP85_Overlap"))
+regions_overlap <- rast(list(regions_overlap45, regions_overlap85))
+
+regions_overlap
+
+writeRaster(regions_overlap, 
+            file.path(outDir, "marine_regions_SNR_overlap.grd"),
+            overwrite = TRUE)
+```
+
+A quick plot of the overlap in each of the regions shows the following
+
+```{r plotOV, fig.show='asis', fig.cap="Figure S3 - Plot of SNR overlap within each marine bioregion", fig.align='center', fig.height = 6.5, fig.width = 5, out.width='100%'}
+xdf <- setDT(as.data.frame(regions_overlap, xy = TRUE, na.rm = TRUE))
+xdf <- melt(xdf, id.vars = c("x", "y"), variable.name = "Scenario",
+            value.name = "Overlap")
+ggplot() +
+  geom_raster(data = xdf, aes(x, y, fill = Overlap)) +
+  facet_wrap(~Scenario, ncol = 1,
+             labeller = as_labeller(c("RCP45_Overlap" = "RCP 4.5",
+                                  "RCP85_Overlap" = "RCP 8.5"))) +
+  scale_fill_stepsn(colours = hcl.colors(15, "Temps", rev = TRUE),
+                       limits = c(0, 0.701),                       
+                       breaks = scales::pretty_breaks(14)(seq(0, 0.7, length = 7)),
+                       labels = function(x) ifelse(round((x *100) %% 2) == 0, x*100 , ""),
+                       oob = scales::squish,
+                       guide = guide_colourbar(
+                         title = "Overlap (%)",
+                         title.position = "top",
+                         title.hjust = 0.5,
+                         title.theme = element_text(size = 12, colour = "black"),
+                         label.position = "bottom",
+                         label.hjust = 0.5,
+                         label.theme = element_text(size = 12, colour = "black"),
+                         barwidth = 10,
+                         barheight = 0.5,
+                         nbin = 100,
+                         frame.colour = "black",
+                         frame.linewidth = 0.5
+                       )) +
+  geom_sf(data = regions, inherit.aes = FALSE, fill = NA, colour = "grey40") +
+  geom_sf(data = coastlines, colour = "black", inherit.aes = FALSE) +
+  coord_sf(xlim = c(-180,180), ylim = c(-90,90),
+           expand = FALSE) +
+  theme_map() +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.direction = "horizontal",
+        strip.text.x = element_text(size = 12, colour = "black"))
+```
+
+## Overlap summaries
+
+What is the global weighted overlap under both scenarios?
+
+```{r weightedOverlap, results='markup'}
+# global weighted overlap under both scenarios
+sapply(c("RCP45_Overlap", "RCP85_Overlap"), function(i) {
+  round(wtd.mean(x = regions[[i]]*100,
+                weights = as.vector(regions$Area),
+                normwt = FALSE), 1)
+})
+```
+
+## Make Figure 2
+
+Here we make figure 2 and figure 3. Figure 2 is made using the overlap data for RCP 4.5, but can be easily changed to used RCP 8.5.
+
+```{r makeFig2, fig.width=9, out.width='100%', results='markup', fig.show='hold'}
+mollPrj <- 'PROJCS["Pacific_Centrered_Mollweide",
+ GEOGCS["GCS_WGS_1984",
+  DATUM["D_WGS_1984",
+   SPHEROID["WGS_1984",6378137.0,298.257223563]],
+  PRIMEM["Greenwich",0.0],
+  UNIT["Degree",0.0174532925199433]],
+ PROJECTION["Mollweide"],
+ PARAMETER["False_Easting",0.0],
+ PARAMETER["False_Northing",0.0],
+ PARAMETER["Central_Meridian",160],
+ UNIT["Meter",1.0]]'
+
+templ_ras <- rast(resolution = 2.5, crs = "EPSG:4326")
+templ_ras <- project(templ_ras, y = mollPrj)
+res(templ_ras) <- c(50000) # 50km only for plotting
+
+# Projected bivariate map
+ovrProj <- project(regions_overlap[["RCP45_Overlap"]], 
+                   y = templ_ras, method = "near")
+ovrProj <- setDT(as.data.frame(ovrProj, xy = TRUE))
+
+# projected shapefiles for aesthetics
+hotspots_prj <- read_sf(file.path(outDir, "shapes/hotspots_prj.shp"))
+hotspots_prj <- hotspots_prj[hotspots_prj$Thresh == 95, ]
+land_prj <- read_sf(file.path(outDir, "shapes/land_prj.shp"))
+regions_prj <-  read_sf(file.path(outDir, "shapes/regions_merged_prj.shp"))
+coast_prj <- read_sf(file.path(outDir, "shapes/coast_prj.shp"))
+bbox_prj <- read_sf(file.path(outDir, "shapes/bbox_prj.shp"))
+
+
+# fig 2 map
+map02 <- ggplot() +
+  geom_raster(data = ovrProj, aes(x = x, y = y, fill = RCP45_Overlap),
+              show.legend = TRUE) +
+  geom_sf(data = land_prj, size = 0.25,
+          inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
+  geom_sf(data = regions_prj, size = 0.5,
+          inherit.aes = FALSE, fill = NA, colour = "grey40") +
+   geom_sf_pattern(data = hotspots_prj, size = 0.5,
+                   pattern = "crosshatch", pattern_size = 0.25,
+                   pattern_density = 0.05, pattern_spacing = 0.01,
+                   pattern_colour  = "white",
+                   inherit.aes = FALSE, colour = "white", fill = NA) +
+  geom_sf(data = coast_prj, size = 0.25,
+          inherit.aes = FALSE, fill = "#E9E9E9", colour = "black") +
+  geom_sf(data = bbox_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "black") +
+  scale_fill_stepsn(colours = cptcity::cpt("jjg_cbcont_div_cbcSpectral", 18)[-c(16:18)],
+                    breaks = seq(0, 0.70, length = 15),
+                    limits = c(-0.001, 0.701),
+                    labels = function(x) ifelse(round((x *100)) %% 2L == 0, x*100 , ""),
+                    oob = scales::squish,
+                    na.value = "transparent",
+                    guide = guide_colourbar(
+                         title = "Overlap (%)",
+                         title.position = "top",
+                         title.hjust = 0.5,
+                         title.theme = element_text(size = 12, colour = "black"),
+                         label.position = "bottom",
+                         label.hjust = 0.5,
+                         label.theme = element_text(size = 12, colour = "black"),
+                         barwidth = 12,
+                         barheight = 1,
+                         nbin = 100,
+                         frame.colour = "black",
+                         frame.linewidth = 0.5,
+                         ticks = TRUE,
+                         ticks.colour = "black",
+                         ticks.linewidth = 0.5,
+                         draw.ulim = FALSE,
+                         draw.llim = FALSE
+                       )) +
+  coord_sf(expand = FALSE) +
+  theme_map() +
+  theme(legend.position = c(0.50, -0.125),
+        legend.justification = "center",
+        legend.direction = "horizontal",
+        strip.text.x = element_text(size = 12, colour = "black"))
+
+# Density plots for borders
+plot_regions <- c("N American Boreal", "Caribbean & Gulf of Mexico",
+                   "Gulf of California", "Coral Sea")
+
+signif.lines <- reg_SNR[Region %in% plot_regions,
+                        .(xMed = quantile(SNR, 0.5),
+                          x5 = quantile(SNR, 0.10),
+                          x95 = quantile(SNR, 0.95)),
+                        by = c("Scenario", "Region")]
+signif.lines
+
+plot_list <- lapply(plot_regions, function(region) {
+  reg_dens <- ggplot(data = reg_SNR[Region == region & Scenario != "RCP85", ],
+         aes(x = SNR, colour = Scenario,
+             group = interaction(Region, Scenario),
+             fill = Scenario)) +
+  geom_density(alpha = 1/4, position = "identity", 
+               aes(y = ..scaled..),
+               trim = TRUE, size = 0.25,
+               kernel = "epanechnikov", bw = "SJ") +
+  scale_fill_manual(values = c(
+    "TraCE" = "#5d8ca8",
+    "RCP45" = "#d3ba68",
+    "RCP85" = "#d5695d"),
+    guide = "legend") +
+  scale_colour_manual(values = c(
+    "TraCE" = "#5d8ca8",
+    "RCP45" = "#d3ba68",
+    "RCP85" = "#d5695d")) +
+  scale_x_continuous(limits = c(0,1), expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+    geom_segment(data = signif.lines[Region == region & Scenario != "RCP85", ],
+                 aes(y = 0.01, yend = 0.33, x = xMed, xend = xMed,
+                     colour = Scenario, group = interaction(Region, Scenario)), 
+                     arrow = arrow(ends = "first", angle = 30, length = unit(.25,"cm"))) +
+  theme_void() +
+    theme(legend.position = "none")
+  return(reg_dens)
+})
+
+names(plot_list) <- plot_regions
+
+left_col <- plot_list$`N American Boreal`/plot_spacer()/plot_list$`Coral Sea`/plot_spacer()
+right_col <- plot_list$`Caribbean & Gulf of Mexico`/plot_spacer()/plot_list$`Gulf of California`/plot_spacer()
+
+# Read in the images for overlay
+walrus <- image_read(file.path(outDir, "Figures/Stock/walrus_small.jpg"))
+manatee <- image_read(file.path(outDir, "Figures/Stock/manatee_small.jpg"))
+reef <- image_read(file.path(outDir, "Figures/Stock/reef_small.jpg"))
+hammer <- image_read(file.path(outDir, "Figures/Stock/hammerhead_small.jpg"))
+
+fig02 <- ggdraw({{left_col} | {map02} | {right_col}} + 
+  plot_layout(ncol = 3, widths = c(0.25,1,0.25))) +
+  draw_label(label = "a", size = 16, x = 0.25, y = 0.75, fontface = "bold") +
+  ## Coral sea
+  draw_line(x = c(0.17, 0.43),
+            y = c(0.43, 0.43),
+            size = 0.65,
+            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+  draw_label(label = "d", size = 16, x = 0.025, y = 0.45, fontface = "bold") +
+  ## NA Boreal
+  draw_line(x = c(0.17, 0.35, 0.35),
+            y = c(0.85, 0.85, 0.78),
+           size = 0.65,
+            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+  draw_label(label = "b", size = 16, x = 0.025, y = 0.95, fontface = "bold") +
+  ## Gulf of Mexico
+  draw_line(x = c(0.825, 0.70, 0.70),
+            y = c(0.85, 0.85, 0.62),
+            size = 0.65,
+            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+   draw_label(label = "c", size = 16, x = 0.835, y = 0.95, fontface = "bold") +
+  ## Gulf of Cali.
+  draw_line(x = c(0.825, 0.70, 0.70),
+            y = c(0.43, 0.43, 0.51),
+            size = 0.65,
+            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+  draw_label(label = "e", size = 16, x = 0.835, y = 0.45, fontface = "bold")
+fig02 <- ggdraw(fig02) +
+  ## reef
+  draw_image(reef, x = 0.0125, y = -0.345, clip = "off", width = 0.16) +
+  ## walrus
+  draw_image(walrus, x = 0.0125, y = 0.125, clip = "off", width = 0.16) +
+  ## manatee
+  draw_image(manatee, x = 0.825, y = 0.125, clip = "off", width = 0.16) +
+  ## hammerheads
+  draw_image(hammer, x = 0.825, y = -0.345, clip = "off", width = 0.16)
+
+# Read in the temperature data for the hotspots
+hs_temps <- setDT(readRDS(file.path(outDir, "Source/annual_temps_latbands_hotspots.RDS")))
+
+trace <- ggplot(data = hs_temps[Scen == "TraCE" & Year < -100, ], 
+                aes(x = Year/1000, y = lyr1, fill = value)) +
+  geom_raster(na.rm = TRUE) +
+  facet_wrap(~Scen, ncol = 1, labeller = as_labeller(c("TraCE" = "a"))) +
+  scale_fill_stepsn(colours = cpt("arendal_temperature", n = 41),
+                    limits = c(12, 32),
+                    oob = scales::squish,
+                    na.value = "transparent",
+                    breaks = seq(12, 32, length = 21),
+                    labels = function(x) ifelse(x %% 2L == 0, x, "")) +
+  scale_x_continuous(breaks = seq(-21,0,length = 7), expand = c(0, 0),
+                     limits = c(-21,0)) +
+  scale_y_continuous(limits = c(-40, 40), 
+                     expand = c(0,0),
+                     breaks = seq(-40,40,20)) +
+  theme_half_open() +
+  theme(legend.position = "none",
+        legend.direction = "horizontal",
+        legend.justification = "centre",
+        strip.text.x = element_text(size = 14, colour = "black", face = "bold", hjust = 0),
+        strip.background = element_blank(),
+        plot.background = element_rect(fill = NA, colour = NA),
+        axis.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        axis.line = element_line(size = 0.25, colour = "black"),
+        axis.ticks.x = element_line(size = 0.25, colour = "black"),
+        plot.margin = unit(c(0,0.5,-0.5,0), "lines")) +
+  labs(y = "Latitude (°)", x = "Year (ka BP)")
+
+rcp <- ggplot(data = hs_temps[Scen != "TraCE", ], 
+                aes(x = Year, y = lyr1, fill = value)) +
+  facet_wrap(~Scen, ncol = 2, 
+             labeller = as_labeller(c("RCP45" = "b", "RCP85" = "c"))) +
+  geom_raster(na.rm = TRUE) +
+  scale_fill_stepsn(colours = cpt("arendal_temperature", n = 21),
+                    limits = c(12, 32),
+                    oob = scales::squish,
+                    na.value = "transparent",
+                    breaks = seq(12, 32, length = 21),
+                    labels = function(x) ifelse(x %% 2L == 0, x, ""),
+                       guide = guide_colourbar(
+                         title = "Temperature (°C)",
+                         title.position = "top",
+                         title.hjust = 0.5,
+                         title.theme = element_text(size = 10, colour = "black"),
+                         label.position = "bottom",
+                         label.hjust = 0.5,
+                         label.theme = element_text(size = 10, colour = "black"),
+                         barwidth = 10,
+                         barheight = 0.75,
+                         nbin = 100,
+                         frame.colour = "black",
+                         frame.linewidth = 0.5,
+                         ticks = TRUE,
+                         ticks.colour = "black",
+                         ticks.linewidth = 0.5,
+                         draw.ulim = FALSE,
+                         draw.llim = FALSE
+                       )) +
+  scale_x_continuous(breaks = seq(1850,2100, length = 6), 
+                     expand = c(0, 0)) +
+  scale_y_continuous(limits = c(-40, 40), 
+                     expand = c(0,0),
+                     breaks = seq(-40,40,20)) +
+  coord_cartesian(clip = "off") +
+  theme_half_open() +
+  theme(legend.position = "bottom",
+        legend.direction = "horizontal",
+        legend.justification = "centre",
+        legend.margin = margin(-0.5, 0, 0, 0, unit = "lines"),
+        strip.text.x = element_text(size = 14, colour = "black", face = "bold", hjust = 0),
+        strip.background = element_blank(),
+        plot.background = element_rect(fill = NA, colour = NA),
+        axis.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        axis.line = element_line(size = 0.25, colour = "black"),
+        axis.ticks.x = element_line(size = 0.25, colour = "black"),
+        panel.spacing.x = unit(1.75, "lines"),
+        plot.margin = unit(c(0,0.5,-0.5,0), "lines")) +
+  labs(y = "Latitude (°)", x = "Year (C.E.)")
+
+fig03 <- {trace}/{rcp} + plot_layout(ncol = 1)
+
+# save to PDF
+ggsave(filename = "Figure02.pdf", plot = fig02,
+       device = cairo_pdf, path = file.path(outDir, "Figures"),
+       width = 9, height = 4.2, units = "in", dpi = 350)
+ggsave(filename = "Figure03.pdf", plot = fig03,
+       device = cairo_pdf, path = file.path(outDir, "Figures"),
+       width = 9, height = 5, units = "in", dpi = 350)
+
+# save to PNG for MS
+ggsave(filename = "Figure02.png", plot = fig02,
+       device = "png", type = "cairo", path = file.path(outDir, "Figures"),
+       bg = "white", width = 9, height = 4.2, units = "in", dpi = 350)
+ggsave(filename = "Figure03.png", plot = fig03,
+       device = "png", type = "cairo", path = file.path(outDir, "Figures"),
+       bg = "white", width = 9, height = 5, units = "in", dpi = 350)
+# plot
+fig02 + theme_map() + labs(caption = "Figure 02 - Exposure to future changes in rates of accelerated oceanic warming under RCP 4.5.")
+fig03 + labs(caption = "Figure 03 - Temporal changes in latitudinal mean annual sea-surface temperature in hotspots of marine biodiversity")
+```
+
+Here we make Figure S2 - the overlap plot for RCP 8.5
+
+```{r figS2, fig.width=9, out.width='100%', results='hide', fig.show='hold'}
+# Projected bivariate map
+ovrProj <- project(regions_overlap[["RCP85_Overlap"]], 
+                   y = templ_ras, method = "near")
+ovrProj <- setDT(as.data.frame(ovrProj, xy = TRUE))
+
+# fig S2 map
+maps2 <- ggplot() +
+  geom_raster(data = ovrProj, aes(x = x, y = y, fill = RCP85_Overlap),
+              show.legend = TRUE) +
+  geom_sf(data = land_prj, size = 0.25,
+          inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
+  geom_sf(data = regions_prj, size = 0.5,
+          inherit.aes = FALSE, fill = NA, colour = "grey40") +
+   geom_sf_pattern(data = hotspots_prj, size = 0.5,
+                   pattern = "crosshatch", pattern_size = 0.25,
+                   pattern_density = 0.05, pattern_spacing = 0.01,
+                   pattern_colour  = "white",
+                   inherit.aes = FALSE, colour = "white", fill = NA) +
+  geom_sf(data = coast_prj, size = 0.25,
+          inherit.aes = FALSE, fill = "#E9E9E9", colour = "black") +
+  geom_sf(data = bbox_prj, size = 0.25,
+          inherit.aes = FALSE, fill = NA, colour = "black") +
+  scale_fill_stepsn(colours = cptcity::cpt("jjg_cbcont_div_cbcSpectral", 18)[-c(16:18)],
+                    breaks = seq(0, 0.70, length = 15),
+                    limits = c(-0.001, 0.701),
+                    labels = function(x) ifelse(round((x *100)) %% 2L == 0, x*100 , ""),
+                    oob = scales::squish,
+                    na.value = "transparent",
+                    guide = guide_colourbar(
+                         title = "Overlap (%)",
+                         title.position = "top",
+                         title.hjust = 0.5,
+                         title.theme = element_text(size = 12, colour = "black"),
+                         label.position = "bottom",
+                         label.hjust = 0.5,
+                         label.theme = element_text(size = 12, colour = "black"),
+                         barwidth = 12,
+                         barheight = 1,
+                         nbin = 100,
+                         frame.colour = "black",
+                         frame.linewidth = 0.5,
+                         ticks = TRUE,
+                         ticks.colour = "black",
+                         ticks.linewidth = 0.5,
+                         draw.ulim = FALSE,
+                         draw.llim = FALSE
+                       )) +
+  coord_sf(expand = FALSE) +
+  theme_map() +
+  theme(legend.position = c(0.50, -0.125),
+        legend.justification = "center",
+        legend.direction = "horizontal",
+        strip.text.x = element_text(size = 12, colour = "black"))
+
+signif.lines <- reg_SNR[Region %in% plot_regions,
+                        .(xMed = quantile(SNR, 0.5),
+                          x5 = quantile(SNR, 0.10),
+                          x95 = quantile(SNR, 0.95)),
+                        by = c("Scenario", "Region")]
+
+plot_list <- lapply(plot_regions, function(region) {
+  reg_dens <- ggplot(data = reg_SNR[Region == region & Scenario != "RCP45", ],
+         aes(x = SNR, colour = Scenario,
+             group = interaction(Region, Scenario),
+             fill = Scenario)) +
+  geom_density(alpha = 1/4, position = "identity", 
+               aes(y = ..scaled..),
+               trim = TRUE, size = 0.25,
+               kernel = "epanechnikov", bw = "SJ") +
+  scale_fill_manual(values = c(
+    "TraCE" = "#5d8ca8",
+    "RCP45" = "#d3ba68",
+    "RCP85" = "#d5695d"),
+    guide = "legend") +
+  scale_colour_manual(values = c(
+    "TraCE" = "#5d8ca8",
+    "RCP45" = "#d3ba68",
+    "RCP85" = "#d5695d")) +
+  scale_x_continuous(limits = c(0,1), expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+    geom_segment(data = signif.lines[Region == region & Scenario != "RCP45", ],
+                 aes(y = 0.01, yend = 0.33, x = xMed, xend = xMed,
+                     colour = Scenario, group = interaction(Region, Scenario)), 
+                 arrow = arrow(ends = "first", angle = 30, length = unit(.25,"cm"))) +
+    theme_void() +
+    theme(legend.position = "none")
+  return(reg_dens)
+})
+
+names(plot_list) <- plot_regions
+
+left_col <- plot_list$`N American Boreal`/plot_spacer()/plot_list$`Coral Sea`/plot_spacer()
+right_col <- plot_list$`Caribbean & Gulf of Mexico`/plot_spacer()/plot_list$`Gulf of California`/plot_spacer()
+
+figs2 <- ggdraw({{left_col} | {maps2} | {right_col}} + 
+  plot_layout(ncol = 3, widths = c(0.25,1,0.25))) +
+  draw_label(label = "a", size = 16, x = 0.25, y = 0.75, fontface = "bold") +
+  ## Coral sea
+  draw_line(x = c(0.17, 0.43),
+            y = c(0.43, 0.43),
+            size = 0.65,
+            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+  draw_label(label = "d", size = 16, x = 0.025, y = 0.45, fontface = "bold") +
+  ## NA Boreal
+  draw_line(x = c(0.17, 0.35, 0.35),
+            y = c(0.85, 0.85, 0.78),
+           size = 0.65,
+            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+  draw_label(label = "b", size = 16, x = 0.025, y = 0.95, fontface = "bold") +
+  ## Gulf of Mexico
+  draw_line(x = c(0.825, 0.70, 0.70),
+            y = c(0.85, 0.85, 0.62),
+            size = 0.65,
+            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+   draw_label(label = "c", size = 16, x = 0.835, y = 0.95, fontface = "bold") +
+  ## Gulf of Cali.
+  draw_line(x = c(0.825, 0.70, 0.70),
+            y = c(0.43, 0.43, 0.51),
+            size = 0.65,
+            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+  draw_label(label = "e", size = 16, x = 0.835, y = 0.45, fontface = "bold")
+
+figs2 <- ggdraw(figs2) +
+  ## reef
+  draw_image(reef, x = 0.0125, y = -0.345, clip = "off", width = 0.16) +
+  ## walrus
+  draw_image(walrus, x = 0.0125, y = 0.125, clip = "off", width = 0.16) +
+  ## manatee
+  draw_image(manatee, x = 0.825, y = 0.125, clip = "off", width = 0.16) +
+  ## hammerheads
+  draw_image(hammer, x = 0.825, y = -0.345, clip = "off", width = 0.16)
+
+
+# save to PDF
+ggsave(filename = "FigureS2.pdf", plot = figs2,
+       device = cairo_pdf, path = file.path(outDir, "Figures"),
+       width = 9, height = 4.2, units = "in", dpi = 350)
+
+# save to PNG for MS
+ggsave(filename = "FigureS2.png", plot = figs2,
+       device = "png", type = "cairo", path = file.path(outDir, "Figures"),
+       bg = "white", width = 9, height = 4.2, units = "in", dpi = 350)
+
+# plot
+figs2 + theme_map() + labs(caption = "Figure S2 - Exposure to future changes in rates of accelerated oceanic warming under RCP 8.5.")
+```
+
