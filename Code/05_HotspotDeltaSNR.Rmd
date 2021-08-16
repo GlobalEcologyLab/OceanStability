@@ -26,7 +26,7 @@ knitr::opts_chunk$set(echo = TRUE, rows.print = 10, cols.print = 10,
                       tidy = "styler", dpi = 320, fig.align = "center",
                       strip.white = TRUE, 
                       dev.args = list(png  = list(type = "cairo")),
-                      root.dir = "/mnt/c/OceanStability")
+                      root.dir = "/mnt/d/Git/OceanStability")
 ```
 
 ## Read in the data
@@ -42,10 +42,10 @@ library(data.table)
 library(rnaturalearth)
 
 # Output path
-outDir <- "/mnt/c/OceanStability"
+outDir <- "/mnt/d/Git/OceanStability"
 
 # Ocean
-oceans <- read_sf(file.path(outDir, "ne_50m_ocean.shp"))
+oceans <- read_sf(file.path(outDir, "outputs/ne_50m_ocean.shp"))
 coastlines <- ne_coastline(50, "sf")
 
 # Marine realms from Costello et al
@@ -87,7 +87,7 @@ reg_name <- data.table(
 regions <- merge(regions, reg_name, by = "Realm")
 
 # 95th percentile hotspots
-hotspots <- read_sf(file.path(outDir, "marine_species_hotspots_poly.shp"))
+hotspots <- read_sf(file.path(outDir, "outputs/marine_species_hotspots_poly.shp"))
 hotspots <- hotspots[hotspots$Thresh == 95, ]
 st_agr(hotspots) <- "constant"
 ```
@@ -119,7 +119,7 @@ A quick plot of the regions that contain hotspots, and the hotspot locations sho
 ggplot() + 
   geom_sf(data = oceans, fill = "grey90", colour = NA) +
   geom_sf(data = regions_w_hs, aes(fill = Name), colour = "white", size = 0.75) +
-  scale_fill_manual(values = {set.seed(18);sample(hcl.colors(12, "Dynamic"), 12, replace = FALSE)}) +
+  scale_fill_manual(values = {set.seed(18);sample(hcl.colors(12, "Batlow"), 12, replace = FALSE)}) +
   geom_sf(data = hs_int, fill = NA, colour = "black") +
   geom_sf(data = coastlines, colour = "black", inherit.aes = FALSE, size = 0.5) +
   coord_sf(xlim = c(-180,180), ylim = c(-90,90),
@@ -147,7 +147,7 @@ hotspots_r <- rasterize(vect(hs_int),
 hotspots_p <- st_as_sf(as.points(hotspots_r))
 
 # Read in the grid-cell SNR data
-cell_snr <- fread(file.path(outDir, "SNR_Cell.csv"))
+cell_snr <- fread(file.path(outDir, "outputs/SNR_Cell.csv"))
 cell_snr <- cell_snr[Region %in% hotspots_p$Name, ]
 cell_snr <- st_as_sf(cell_snr, coords = c("x", "y"), crs = 4326)
 
@@ -191,7 +191,7 @@ A sensitivity analysis is also conducted $\pm$ 5% (`{90-100th percentile}`).
 
 ```{r extremeCondAssessment, results='markup', rows.print = 13, cols.print = 12}
 # Read in the grid-cell SNR data agaain
-cell_snr <- fread(file.path(outDir, "SNR_Cell.csv"))
+cell_snr <- fread(file.path(outDir, "outputs/SNR_Cell.csv"))
 cell_snr <- cell_snr[Region %in% hotspots_p$Name, ]
 
 # quantiles from the past for each realm

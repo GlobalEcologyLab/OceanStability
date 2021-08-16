@@ -26,7 +26,7 @@ knitr::opts_chunk$set(echo = TRUE, rows.print = 10, cols.print = 10,
                       tidy = "styler", dpi = 320, fig.align = "center",
                       strip.white = TRUE, 
                       dev.args = list(png  = list(type = "cairo")),
-                      root.dir = "/mnt/c/OceanStability")
+                      root.dir = "/mnt/d/Git/OceanStability")
 ```
 
 ## Extract data from StableClim
@@ -52,7 +52,7 @@ library(scales)
 scPath <- "/mnt/c/StableClim"
 
 # Path to output directory
-outDir <- "/mnt/c/OceanStability"
+outDir <- "/mnt/d/Git/OceanStability"
 
 ne_download2 <- function (scale = 110, type = "countries", category = c("cultural", 
   "physical", "raster"), destdir = tempdir(), load = TRUE, 
@@ -84,7 +84,7 @@ ne_download2 <- function (scale = 110, type = "countries", category = c("cultura
 }
 
 ocean_mask <- ne_download2(scale = 50, type = "ocean", category = "physical",
-                          destdir = outDir, load = TRUE,
+                          destdir = file.path(outDir, "/outputs"), load = TRUE,
                           returnclass = "sf")
 ocean_mask <- rasterize(x = vect(ocean_mask), 
                         y = rast(resolution = 2.5, crs = "EPSG:4326",
@@ -112,7 +112,7 @@ scPath <- "/mnt/c/StableClim"
 outDir <- "/mnt/c/OceanStability"
 
 ocean_mask <- ne_download(scale = 50, type = "ocean", category = "physical",
-                          destdir = outDir, load = TRUE,
+                          destdir = file.path(outDir, "/outputs"), load = TRUE,
                           returnclass = "sf")
 ocean_mask <- rasterize(x = vect(ocean_mask), 
                         y = rast(resolution = 2.5, crs = "EPSG:4326",
@@ -343,13 +343,13 @@ Now we write the rasters out. Output is `{terra}/{raster}` native raster format.
 ```{r saveSCRast}
 # Save rasters
 writeRaster(pal_rast_sub$ocn_warm,
-            filename = file.path(outDir, "paleo_rasters_ocean_warming.grd"),
+            filename = file.path(outDir, "outputs/paleo_rasters_ocean_warming.grd"),
             datatype = "FLT4S", overwrite = TRUE)
 writeRaster(rcp45_rast_sub$ocn_warm,
-            filename = file.path(outDir, "rcp45_rasters_ocean_warming.grd"),
+            filename = file.path(outDir, "outputs/rcp45_rasters_ocean_warming.grd"),
             datatype = "FLT4S", overwrite = TRUE)
 writeRaster(rcp85_rast_sub$ocn_warm,
-            filename = file.path(outDir, "rcp85_rasters_ocean_warming.grd"),
+            filename = file.path(outDir, "outputs/rcp85_rasters_ocean_warming.grd"),
             datatype = "FLT4S", overwrite = TRUE)
 ```
 
@@ -490,9 +490,9 @@ Finally, we write out the delta SNR rasters to geotiff.
 ```{r writeDelSNR}
 # Write delta rasters
 writeRaster(snr_deltaRCP45$Delta_stSNR_ocn_warm[["Delta_stSNR_ocn_warm"]],
-            file.path(outDir, "snr_st_delta_rcp45.tif"), overwrite = TRUE)
+            file.path(outDir, "outputs/snr_st_delta_rcp45.tif"), overwrite = TRUE)
 writeRaster(snr_deltaRCP85$Delta_stSNR_ocn_warm[["Delta_stSNR_ocn_warm"]],
-            file.path(outDir, "snr_st_delta_rcp85.tif"), overwrite = TRUE)
+            file.path(outDir, "outputs/snr_st_delta_rcp85.tif"), overwrite = TRUE)
 ```
 
 ## References

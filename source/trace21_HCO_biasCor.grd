@@ -1,0 +1,20 @@
+[general]
+[georeference]
+nrows=72
+ncols=144
+xmin=-180
+ymin=-90
+xmax=180
+ymax=90
+projection=+proj=longlat +datum=WGS84 +no_defs
+[data]
+datatype=FLT4S
+nodatavalue=nan
+byteorder=little
+nbands=2
+bandorder=BIL
+minvalue=-4.93268195371108428e+32:-4.93268195371108428e+32
+maxvalue=5.84860314976236484e+35:5.84860314976236484e+35
+categorical=FALSE
+[description]
+layername=HCO:HCO_SD

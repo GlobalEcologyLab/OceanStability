@@ -11,5 +11,13 @@
 source/AnnualTemperatureStack_21000_0BP.nc
 
 # Exclude the files from the compiled markdown docs
+!Code/*.Rmd
 Code/*.md
 Code/*.html
+Code/
+
+# Exclude outputs from syncing
+outputs/*
+
+# Exclude figures from syncing
+Figures/*
