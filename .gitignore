@@ -8,6 +8,7 @@
 .csv
 
 # Exclude TraCE21 temp stack
+# Data for HCO is included in analysis
 source/AnnualTemperatureStack_21000_0BP.nc
 
 # Exclude the files from the compiled markdown docs
@@ -17,6 +18,7 @@ Code/*.html
 Code/
 
 # Exclude outputs from syncing
+!outputs/outputs.txt
 outputs/*
 
 # Exclude figures from syncing
