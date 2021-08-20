@@ -59,7 +59,6 @@ land <- ne_countries(50, returnclass = "sf")
 oceans <- read_sf(file.path(outDir, "outputs/ne_50m_ocean.shp"))
 st_agr(oceans) <- "constant"
 
-
 ocean_mask <- read_sf(file.path(outDir, "outputs/ne_50m_ocean.shp"))
 ocean_mask <- rasterize(x = vect(ocean_mask), 
                         y = rast(resolution = 2.5, crs = "EPSG:4326",
@@ -67,7 +66,6 @@ ocean_mask <- rasterize(x = vect(ocean_mask),
                         cover = TRUE)
 ocean_mask[ocean_mask < 0.85] <- NA
 ocean_mask[!is.na(ocean_mask)] <- 1
-
 ```
 
 Here we use a simple delta bias correction (@beyer2020) which involves calculating anomalies between the TraCE-21 data and the StableClim data during a common climatological period (1850-1950 C.E.; 100 - 0 BP), and then adding these anomalies back to the TraCE21 data to harmonise it with the StableClim data.
@@ -205,7 +203,6 @@ names(worldSST_rcp45) <- c("MnSST_HCO", "MnSST_RCP45", "sdSST_HCO")
 clim45 <- setDT(as.data.frame(worldSST_rcp45, xy = TRUE, na.rm = TRUE))
 clim45[, cid := cellFromXY(worldSST_rcp45, xy = clim45[, c("x", "y")])]
 setcolorder(clim45, c("MnSST_HCO", "MnSST_RCP45", "sdSST_HCO", "cid", "x", "y"))
-
 
 # RCP 85
 worldSST_rcp85 <- as(rast(list(hco[["HCO"]], rcp85, hco[["HCO_SD"]])), "Raster")
