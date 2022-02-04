@@ -25,8 +25,7 @@ knitr::opts_chunk$set(echo = TRUE, rows.print = 10, cols.print = 10,
                       error = FALSE, strip.white = TRUE,
                       tidy = "styler", dpi = 320, fig.align = "center",
                       strip.white = TRUE, 
-                      dev.args = list(png  = list(type = "cairo")),
-                      root.dir = "/mnt/d/Git/OceanStability")
+                      dev.args = list(png  = list(type = "cairo")))
 ```
 
 ## Read in the data
@@ -41,28 +40,15 @@ library(ggplot2)
 library(data.table)
 library(rnaturalearth)
 
-# Output path
-outDir <- "/mnt/d/Git/OceanStability"
-
 # Ocean
-oceans <- read_sf(file.path(outDir, "outputs/ne_50m_ocean.shp"))
-coastlines <- ne_coastline(50, "sf")
+coastlines <- ne_coastline(50, returnclass = "sf")
+oceans <- read_sf("outputs/output_shapes.gpkg", layer = "ne_ocean")
 
 # Marine realms from Costello et al
-## need to source
-## available from https://auckland.figshare.com/articles/GIS_shape_files_of_realm_maps/5596840
-regions <- read_sf("/mnt/c/Shapes/MarineRealmsShapeFile/MarineRealms.shp")
+regions <- read_sf("outputs/output_shapes.gpkg", layer = "marine_regions_clipped")
 
 st_agr(oceans) <- "constant"
 st_agr(regions) <- "constant"
-
-# Crop regions to oceans
-regions <- st_transform(
-  # project to plate-carree before intersecting
-  # add 0 buffer to avoid TopologyException error
-  st_intersection(st_buffer(st_transform(regions, crs = "EPSG:32662"), 0),
-                  st_buffer(st_transform(oceans[2], crs = "EPSG:32662"), 0)),
-  crs = "EPSG:4326")
 
 # Area of each region in km^2
 regions$Area <- set_units(st_area(regions), "km^2")
@@ -87,7 +73,7 @@ reg_name <- data.table(
 regions <- merge(regions, reg_name, by = "Realm")
 
 # 95th percentile hotspots
-hotspots <- read_sf(file.path(outDir, "outputs/marine_species_hotspots_poly.shp"))
+hotspots <- read_sf("outputs/output_shapes.gpkg", layer = "marine_hotspots")
 hotspots <- hotspots[hotspots$Thresh == 95, ]
 st_agr(hotspots) <- "constant"
 ```
@@ -97,9 +83,11 @@ st_agr(hotspots) <- "constant"
 Here we need to intersect the hotspots with their corresponding biogeographic realm
 
 ```{r intersectHSAndRealms}
-hs_int <- st_transform(st_intersection(st_buffer(st_transform(hotspots, crs = "EPSG:32662"), 0),
-                          st_buffer(st_transform(regions[4], crs = "EPSG:32662"), 0)),
-                       "EPSG:4326")
+hs_int <- st_transform(
+  st_intersection(
+    st_buffer(st_transform(hotspots, crs = "EPSG:32662"), 0),
+    st_buffer(st_transform(regions[4], crs = "EPSG:32662"), 0)
+    ), "EPSG:4326")
 st_agr(hs_int) <- "constant"
 
 # Area of intersected hotspots in km^2
@@ -147,22 +135,23 @@ hotspots_r <- rasterize(vect(hs_int),
 hotspots_p <- st_as_sf(as.points(hotspots_r))
 
 # Read in the grid-cell SNR data
-cell_snr <- fread(file.path(outDir, "outputs/SNR_Cell.csv"))
+cell_snr <- fread("outputs/SNR_Cell.csv")
 cell_snr <- cell_snr[Region %in% hotspots_p$Name, ]
 cell_snr <- st_as_sf(cell_snr, coords = c("x", "y"), crs = 4326)
 
 # intersect hotspots with cell_snr
 ## only intersect Region, Scenario, and SNR
-hotspot_delta_snr <- st_transform(st_intersection(
-  st_transform(hotspots_p, crs = "EPSG:32662"),
-  st_transform(cell_snr[, c(2:4)], crs = "EPSG:32662")),
-  crs = "EPSG:4326")
+hotspot_delta_snr <- st_transform(
+  st_intersection(
+    st_transform(hotspots_p, crs = "EPSG:32662"),
+    st_transform(cell_snr[, c(2:4)], crs = "EPSG:32662")
+    ), crs = "EPSG:4326")
 
 # change to data.table
 hotspot_delta <- as.data.table(hotspot_delta_snr)
 hotspot_delta[, ':='(
-  Lon = st_coordinates(hotspot_delta_snr)[,1],
-  Lat = st_coordinates(hotspot_delta_snr)[,2],
+  Lon = st_coordinates(hotspot_delta_snr)[, 1],
+  Lat = st_coordinates(hotspot_delta_snr)[, 2],
   geometry = NULL)]
 colnames(hotspot_delta)[1:2] <- c("HotspotRegion", "SNRCellRegion")
 setorder(hotspot_delta, -Scenario, HotspotRegion)
@@ -191,13 +180,13 @@ A sensitivity analysis is also conducted $\pm$ 5% (`{90-100th percentile}`).
 
 ```{r extremeCondAssessment, results='markup', rows.print = 13, cols.print = 12}
 # Read in the grid-cell SNR data agaain
-cell_snr <- fread(file.path(outDir, "outputs/SNR_Cell.csv"))
+cell_snr <- fread("outputs/SNR_Cell.csv")
 cell_snr <- cell_snr[Region %in% hotspots_p$Name, ]
 
 # quantiles from the past for each realm
 qSNR <- setDT(cell_snr)[Scenario == "TraCE",
-                       as.list(quantile(SNR, prob = seq(0.9,1,0.01))),
-                       by = c("Region")]
+                        as.list(quantile(SNR, prob = seq(0.9,1,0.01))),
+                        by = c("Region")]
 qSNR
 
 # Regions to iterate through

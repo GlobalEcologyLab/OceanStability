@@ -25,8 +25,7 @@ knitr::opts_chunk$set(echo = TRUE, rows.print = 10, cols.print = 10,
                       error = FALSE, strip.white = TRUE,
                       tidy = "styler", dpi = 320, fig.align = "center",
                       strip.white = TRUE, 
-                      dev.args = list(png  = list(type = "cairo")),
-                      root.dir = "/mnt/d/Git/OceanStability")
+                      dev.args = list(png  = list(type = "cairo")))
 ```
 
 ## Read in the data
@@ -44,39 +43,34 @@ library(ggplot2)
 library(units)
 library(spatialEco)
 library(geosphere)
+library(gdistance)
 
-sf_use_s2(FALSE)
+sf_use_s2(TRUE)
+
+source("source/rotate_prj.R")
 
 # StableClim path
 scPath <- "/mnt/c/StableClim"
 
-# Path to output directory
-outDir <- "/mnt/d/Git/OceanStability"
-
-# Coastlines and aesthetics
-coastlines <- ne_coastline(50, returnclass = "sf")
-land <- ne_countries(50, returnclass = "sf")
-oceans <- read_sf(file.path(outDir, "outputs/ne_50m_ocean.shp"))
+# Coastlines and oceans
+coastlines <- ne_coastline(110, returnclass = "sf")
+land <- ne_countries(110, returnclass = "sf")
+oceans <- read_sf("outputs/output_shapes.gpkg", layer = "ne_ocean")
 st_agr(oceans) <- "constant"
 
-ocean_mask <- read_sf(file.path(outDir, "outputs/ne_50m_ocean.shp"))
-ocean_mask <- rasterize(x = vect(ocean_mask), 
-                        y = rast(resolution = 2.5, crs = "EPSG:4326",
-                                 extent = c(-180,180,-90,90)), 
-                        cover = TRUE)
-ocean_mask[ocean_mask < 0.85] <- NA
-ocean_mask[!is.na(ocean_mask)] <- 1
+# 2.5° Ocean mask
+ocean_mask <- rast("outputs/ocean_mask.grd")
 ```
 
 Here we use a simple delta bias correction (@beyer2020) which involves calculating anomalies between the TraCE-21 data and the StableClim data during a common climatological period (1850-1950 C.E.; 100 - 0 BP), and then adding these anomalies back to the TraCE21 data to harmonise it with the StableClim data.
 
 ```{r biasCorrection, results = 'markup'}
 # hotspot data
-rhs <- rast(file.path(outDir, "outputs/marine_species_hotspots_wgs84.tif"))
+rhs <- rast("outputs/marine_species_hotspots_wgs84.grd")
 rhs
 
 # hotspot polygons
-hotspots <- read_sf(file.path(outDir, "outputs/marine_species_hotspots_poly.shp"))
+hotspots <- read_sf("outputs/output_shapes.gpkg", layer = "marine_hotspots")
 hotspots <- hotspots[hotspots$Thresh == 95, ]
 
 # EEZ boundaries
@@ -93,16 +87,8 @@ eez <- st_transform(st_intersection(
   crs = "EPSG:4326")
 
 # Bio-regions
-regions <- read_sf("/mnt/c/Shapes/MarineRealmsShapeFile/MarineRealms.shp")
-st_agr(regions) <- "constant"
+regions <- read_sf("outputs/output_shapes.gpkg", layer = "marine_regions_clipped")
 
-# Crop regions to oceans
-regions <- st_transform(
-  # project to plate-carree before intersecting
-  # add 0 buffer to avoid TopologyException error
-  st_intersection(st_buffer(st_transform(regions, crs = "EPSG:32662"), 0),
-                  st_buffer(st_transform(oceans[2], crs = "EPSG:32662"), 0)),
-  crs = "EPSG:4326")
 reg_name <- data.table(
   Realm = c(1L:30L),
   Name = c("Inner Baltic Sea","Black Sea","NE Atlantic",
@@ -139,7 +125,7 @@ Here we will calculate the mean climate at 2 different time intervals. The Holoc
 ```{r climMeans}
 # Holocene Climatic Optimum
 ## already processed - read in a raster of mean and SD
-hco <- rast(file.path(outDir, "source/trace21_HCO_biasCor.grd"))
+hco <- rast("source/trace21_HCO_biasCor.grd")
 values(hco) <- round(values(hco), 2)
 hco
 
@@ -211,21 +197,28 @@ clim85 <- setDT(as.data.frame(worldSST_rcp85, xy = TRUE, na.rm = TRUE))
 clim85[, cid := cellFromXY(worldSST_rcp85, xy = clim45[, c("x", "y")])]
 setcolorder(clim85, c("MnSST_HCO", "MnSST_RCP85", "sdSST_HCO", "cid", "x", "y"))
 
+# Create the conductance matrix (all ocean cells considered to have conductance of 1)
+cD <- as(ocean_mask, "Raster")
+h8 <- transition(cD, transitionFunction = mean, directions = 8)
+h8 <- geoCorrection(h8, type = "c")
+
 # climate velocity and distance to analogues under RCP 4.5
 hco_ca45 <- dVoCC(clim45, n = 1, tdiff = 7140, method = "Variable", climTol = NA,
-                  geoTol = Inf, distfun = "GreatCircle", trans = NA, lonlat = TRUE)
+                  geoTol = Inf, distfun = "LeastCost", trans = h8, lonlat = TRUE)
 
 # climate velocity and distance to analogues under RCP 8.5
 hco_ca85 <- dVoCC(clim85, n = 1, tdiff = 7140, method = "Variable", climTol = NA,
-                  geoTol = Inf, distfun = "GreatCircle", trans = NA, lonlat = TRUE)
+                  geoTol = Inf, distfun = "LeastCost", trans = h8, lonlat = TRUE)
 
 # Distances masked to hotspots only
-analogue_dist <- worldSST_rcp85[[c(1,1,1,1)]]
+analogue_dist <- worldSST_rcp85[[rep(1,4)]]
 names(analogue_dist) <- c("RCP45", "RCP85", "RCP45Tar", "RCP85Tar")
+# focal is the focal cell, geoDis is the distance from focal cell to nearest analogue
 analogue_dist[["RCP45"]][hco_ca45$focal] <- hco_ca45$geoDis
 analogue_dist[["RCP85"]][hco_ca85$focal] <- hco_ca85$geoDis
 
 # Target cell containing the climate analogue
+# focal is the focal cell, target is the cell of nearest analogue
 ## can extract bioregion using these values
 analogue_dist[["RCP45Tar"]][hco_ca45$focal] <- hco_ca45$target
 analogue_dist[["RCP85Tar"]][hco_ca85$focal] <- hco_ca85$target
@@ -236,9 +229,7 @@ analogue_dist <- mask(analogue_dist, rhs)
 analogue_dist
 
 # Save to raster file
-writeRaster(analogue_dist,
-            file.path(outDir, "outputs/climate_analogue_distances_wgs84.grd"),
-            overwrite = TRUE)
+writeRaster(analogue_dist, "outputs/climate_analogue_distances_wgs84.grd")
 
 global(analogue_dist[[c("RCP45", "RCP85")]], mean, na.rm = TRUE)
 global(analogue_dist[[c("RCP45", "RCP85")]], sd, na.rm = TRUE)
@@ -266,17 +257,18 @@ res(templ_ras) <- c(100000) # 100km only for plotting
 # Projected disance map
 r <- analogue_dist[[c(1:2)]]
 r[["DeltaDist"]] <- r[["RCP85"]] - r[["RCP45"]]
-rdf <- project(r, templ_ras, method = "bilinear")
-rdf <- melt(setDT(as.data.frame(rdf, xy = TRUE, na.rm = TRUE)), id.vars = c("x", "y"))
+rdf <- project(r, templ_ras, method = "near")
+rdf <- melt(setDT(as.data.frame(rdf, xy = TRUE, na.rm = FALSE)), id.vars = c("x", "y"))
 rdf[, variable := factor(variable, levels = c("RCP45", "RCP85", "DeltaDist"))]
 
 # projected shapefiles for aesthetics
-hotspots_prj <- read_sf(file.path(outDir, "shapes/hotspots_prj.shp"))
+hotspots_prj <- read_sf("outputs/output_shapes.gpkg", layer = "marine_hotspots")
 hotspots_prj <- hotspots_prj[hotspots_prj$Thresh == 95, ]
-land_prj <- read_sf(file.path(outDir, "shapes/land_prj.shp"))
-regions_prj <-  read_sf(file.path(outDir, "shapes/regions_merged_prj.shp"))
-coast_prj <- read_sf(file.path(outDir, "shapes/coast_prj.shp"))
-bbox_prj <- read_sf(file.path(outDir, "shapes/bbox_prj.shp"))
+hotspots_prj <- rotate_prj(hotspots_prj, crs = st_crs(templ_ras))
+land_prj <- read_sf("shapes/mapping_shapes.gpkg", layer = "land")
+regions_prj <- read_sf("shapes/mapping_shapes.gpkg", layer = "regions_merged")
+coast_prj <- read_sf("shapes/mapping_shapes.gpkg", layer = "coast")
+bbox_prj <- read_sf("shapes/mapping_shapes.gpkg", layer = "bbox")
 
 figS3 <- ggplot() +
   geom_raster(data = rdf[variable != "DeltaDist", ], aes(x, y, fill = value)) +
@@ -291,10 +283,11 @@ figS3 <- ggplot() +
           inherit.aes = FALSE, fill = "#E9E9E9", colour = "black") +
   geom_sf(data = bbox_prj, size = 0.25,
           inherit.aes = FALSE, fill = NA, colour = "black") +
-  scale_fill_gradientn(colours = cptcity::cpt("jjg_cbac_seq_cbacYlGnBu09", 100),
-                       limits = c(0, 4500),
-                       labels = function(x) ifelse(test = (seq(0, 4500, by = 500)/500) %% 2 == 0, x, ""),
-                       breaks = seq(0, 4500, by = 500),
+  scale_fill_viridis_c(option = "H", end = 1, begin = 0.05,
+                       limits = c(0, 5000),
+                       labels = function(x) ifelse(test = (seq(0, 5000, by = 500)/500) %% 2 == 0, x, ""),
+                       breaks = seq(0, 5000, by = 500),
+                       na.value = "transparent",
                        oob = scales::squish,
                        guide = guide_colourbar(
                          title = "Distance to analogue climate (km)",
@@ -318,12 +311,12 @@ figS3 <- ggplot() +
         strip.text.x = element_text(size = 12, colour = "black", hjust = 0))
 # save to PDF
 ggsave(filename = "FigureS3.pdf", plot = figS3,
-       device = cairo_pdf, path = file.path(outDir, "Figures"),
+       device = cairo_pdf, path = "Figures",
        width = 5, height = 6.5, units = "in", dpi = 350)
 
 # save to PNG for MS
 ggsave(filename = "FigureS3.png", plot = figS3,
-       device = "png", type = "cairo", path = file.path(outDir, "Figures"),
+       device = "png", type = "cairo", path = "Figures",
        bg = "white", width = 5, height = 6.5, units = "in", dpi = 350)
 
 # plot
@@ -344,10 +337,11 @@ ggplot() +
   geom_sf(data = bbox_prj, size = 0.25,
           inherit.aes = FALSE, fill = NA, colour = "black") +
   scale_fill_gradientn(colours = cptcity::cpt("cmocean_curl", 100),
-                       limits = c(-3000, 3000),
-                       labels = function(x) ifelse(test = (seq(-3000, 3000, by = 500)/500) %% 2 == 0, x, ""),
-                       breaks = seq(-3000, 3000, by = 500),
+                       limits = c(-2000, 2000),
+                       labels = function(x) ifelse(test = (seq(-2000, 2000, by = 500)/500) %% 2 == 0, x, ""),
+                       breaks = seq(-2000, 2000, by = 500),
                        oob = scales::squish,
+                       na.value = "transparent",
                        guide = guide_colourbar(
                          title = "Difference (RCP 8.5 - RCP 4.5; km)",
                          title.position = "top",
@@ -377,8 +371,8 @@ Here we determine the maximum distance within each biogeographic region, to see 
 ```{r maxsizeRegions, results='markup'}
 # intersect hotspots with regions
 hs_int <- st_transform(
-  st_intersection(st_buffer(
-    st_transform(hotspots, crs = "EPSG:32662"), 0),
+  st_intersection(
+    st_buffer(st_transform(hotspots, crs = "EPSG:32662"), 0),
     st_buffer(st_transform(regions[3], crs = "EPSG:32662"), 0)),
   "EPSG:4326")
 st_agr(hs_int) <- "constant"
@@ -417,18 +411,24 @@ distances <- sapply(unique(regions_w_hs$Name), FUN = function(name, ...) {
 regions_w_hs$Distances <- distances
 
 # Extract the Min,Max,Mean distances from the climate analogues
-regions_w_hs$RCP45Min <- round(extract(analogue_dist[["RCP45"]], y = vect(regions_w_hs),
-                                 fun = min, na.rm = TRUE)[,2])
-regions_w_hs$RCP45Max <- round(extract(analogue_dist[["RCP45"]], y = vect(regions_w_hs),
-                                 fun = max, na.rm = TRUE)[,2])
-regions_w_hs$RCP45Mean <- round(extract(analogue_dist[["RCP45"]], y = vect(regions_w_hs),
-                                 fun = mean, na.rm = TRUE)[,2])
-regions_w_hs$RCP85Min <- round(extract(analogue_dist[["RCP85"]], y = vect(regions_w_hs),
-                                 fun = min, na.rm = TRUE)[,2])
-regions_w_hs$RCP85Max <- round(extract(analogue_dist[["RCP85"]], y = vect(regions_w_hs),
-                                 fun = max, na.rm = TRUE)[,2])
-regions_w_hs$RCP85Mean <- round(extract(analogue_dist[["RCP85"]], y = vect(regions_w_hs),
-                                 fun = mean, na.rm = TRUE)[,2])
+regions_w_hs$RCP45Min <- round(extract(analogue_dist[["RCP45"]], 
+                                       y = vect(regions_w_hs),
+                                       fun = min, na.rm = TRUE)[,2])
+regions_w_hs$RCP45Max <- round(extract(analogue_dist[["RCP45"]], 
+                                       y = vect(regions_w_hs),
+                                       fun = max, na.rm = TRUE)[,2])
+regions_w_hs$RCP45Mean <- round(extract(analogue_dist[["RCP45"]], 
+                                        y = vect(regions_w_hs),
+                                        fun = mean, na.rm = TRUE)[,2])
+regions_w_hs$RCP85Min <- round(extract(analogue_dist[["RCP85"]], 
+                                       y = vect(regions_w_hs),
+                                       fun = min, na.rm = TRUE)[,2])
+regions_w_hs$RCP85Max <- round(extract(analogue_dist[["RCP85"]], 
+                                       y = vect(regions_w_hs),
+                                       fun = max, na.rm = TRUE)[,2])
+regions_w_hs$RCP85Mean <- round(extract(analogue_dist[["RCP85"]], 
+                                        y = vect(regions_w_hs),
+                                        fun = mean, na.rm = TRUE)[,2])
 
 # Maximum distances are all < than the maximum distance within the region
 regions_w_hs[, c("Name", "Distances", "RCP45Max", "RCP85Max")]
@@ -489,10 +489,12 @@ We can also plot the displacement for each marine hotspot that has a climate ana
 # Only keep points in hotspot locations
 dif45sf <- st_as_sf(as.data.frame(Dif45), coords = c("XS", "YS"),
                     crs = "EPSG:4326")
-dif45_int <- st_transform(st_as_sf(erase.point(y = as_Spatial(st_transform(dif45sf, crs = "EPSG:32662")),
-                                  x = as_Spatial(st_transform(hotspots, crs = "EPSG:32662")),
-                                  inside = FALSE)),
-                          crs = "EPSG:4326")
+dif45_int <- st_transform(
+  st_as_sf(
+    erase.point(y = as_Spatial(st_transform(dif45sf, crs = "EPSG:32662")),
+                x = as_Spatial(st_transform(hotspots, crs = "EPSG:32662")),
+                inside = FALSE)),
+  crs = "EPSG:4326")
 dif45_int$XS <- st_coordinates(dif45_int)[,1]
 dif45_int$YS <- st_coordinates(dif45_int)[,2]
 dif45_intPrj <- st_transform(dif45_int, crs = mollPrj)
@@ -508,33 +510,54 @@ dif85_int$YS <- st_coordinates(dif85_int)[,2]
 dif85_intPrj <- st_transform(dif85_int, crs = mollPrj)
 dif85_int <- as.data.frame(dif85_int)
 
-vect45 <- st_transform(
-  st_as_sf(gcIntermediate(dif45_int[, c("XS", "YS")],
+vect45 <- st_as_sf(gcIntermediate(dif45_int[, c("XS", "YS")],
                           dif45_int[, c("XE", "YE")],
                           n = 100, addStartEnd = TRUE, 
-                          breakAtDateLine = TRUE, sp = TRUE)),
-  crs = mollPrj)
-vect85 <- st_transform(
-  st_as_sf(gcIntermediate(dif85_int[, c("XS", "YS")],
+                          breakAtDateLine = TRUE, sp = TRUE))
+st_crs(vect45) <- "EPSG:4326"
+vect45 <- st_cast(rotate_prj(vect45, mollPrj), "LINESTRING")
+# turn to data.table for plotting
+## need to use geom_curve for nice plotting
+vect45 <- data.table(x_start = st_coordinates(st_line_sample(vect45, sample = 0))[,1],
+                     x_end = st_coordinates(st_line_sample(vect45, sample = 1))[,1],
+                     y_start = st_coordinates(st_line_sample(vect45, sample = 0))[,2],
+                     y_end = st_coordinates(st_line_sample(vect45, sample = 1))[,2],
+                     Scen = "RCP45")
+
+# RCP 8.5
+vect85 <- st_as_sf(gcIntermediate(dif85_int[, c("XS", "YS")],
                           dif85_int[, c("XE", "YE")],
                           n = 100, addStartEnd = TRUE, 
-                          breakAtDateLine = TRUE, sp = TRUE)),
-  crs = mollPrj)
+                          breakAtDateLine = TRUE, sp = TRUE))
+st_crs(vect85) <- "EPSG:4326"
+vect85 <- st_cast(rotate_prj(vect85, mollPrj), "LINESTRING")
+# for plotting only.
+vect85 <- data.table(x_start = st_coordinates(st_line_sample(vect85, sample = 0))[,1],
+                     x_end = st_coordinates(st_line_sample(vect85, sample = 1))[,1],
+                     y_start = st_coordinates(st_line_sample(vect85, sample = 0))[,2],
+                     y_end = st_coordinates(st_line_sample(vect85, sample = 1))[,2],
+                     Scen = "RCP85")
 
-vect45$Scen <- "RCP45"
-vect85$Scen <- "RCP85"
-
-vects <- rbind(vect45, vect85)
+vects <- rbindlist(list(vect45, vect85))
+# ranomdly sort the rows for plotting
+## essentially so rcp85 doesnt dominate the plot!
+{set.seed(54); vects <- vects[sample(1:nrow(vects), nrow(vects), replace = FALSE), ]}
 
 figS4 <- ggplot() +
   geom_sf(data = land_prj, size = 0.25,
           inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
   geom_sf(data = hotspots_prj, size = 0.25,
           inherit.aes = FALSE, fill = NA, colour = "black") +
-  geom_sf(data = vects, aes(colour = Scen), size = 1, #colour = "#D6BE6983",
-          inherit.aes = FALSE, show.legend = TRUE) +
-  scale_colour_manual(values = c("RCP45" = "#D6BE6983",
-                                  "RCP85" = "#D66A5E83"),
+  geom_curve(data = vects, 
+             aes(x = x_start, y = y_start, xend = x_end, yend = y_end,
+                 group = Scen, colour = Scen), curvature = 0.1,
+             arrow = arrow(length = unit(0.03, "npc"),
+                           angle = 30, end = "last", type = "open")) +
+  # geom_sf(data = vects, aes(colour = Scen), size = 1, #colour = "#D6BE6983",
+  #         arrow = arrow(length=unit(0.30,"cm"), ends="first", type = "closed"),
+  #         inherit.aes = FALSE, show.legend = TRUE) +
+  scale_colour_manual(values = c("RCP45" = "#f4a58283",
+                                 "RCP85" = "#b2182b83"),
                       labels = c("RCP45" = "RCP 4.5",
                                   "RCP85" = "RCP 8.5"),
                         guide = guide_legend(
@@ -563,12 +586,12 @@ figS4 <- ggplot() +
         legend.direction = "horizontal")
 # save to PDF
 ggsave(filename = "FigureS4.pdf", plot = figS4,
-       device = cairo_pdf, path = file.path(outDir, "Figures"),
+       device = cairo_pdf, path = "Figures",
        width = 7, height = 5, units = "in", dpi = 350)
 
 # save to PNG for MS
 ggsave(filename = "FigureS4.png", plot = figS4,
-       device = "png", type = "cairo", path = file.path(outDir, "Figures"),
+       device = "png", type = "cairo", path = "Figures",
        bg = "white", width = 7, height = 5, units = "in", dpi = 350)
 
 # plot
@@ -578,6 +601,8 @@ figS4 + labs(caption = "Figure S4 - Dispersal from hotspot locations to climate 
 ## Near shore displacement
 
 Here we repeat the analysis above, but consider only cells within 200 nautical miles (370 km) of coastlines - that is, cells within Exclusive Economic Zones.
+
+The analogue cells are found only in EEZ locations, but allow for dispersal across the entire ocean.
 
 ```{r voccDispNearShore, warning=FALSE, message=FALSE, results='markup'}
 eez_mask <- rasterize(vect(eez), rcp45, cover = TRUE)
@@ -599,13 +624,20 @@ clim85_eez <- setDT(as.data.frame(worldSST_rcp85_eez, xy = TRUE))
 clim85_eez[, cid := cellFromXY(worldSST_rcp85_eez, xy = clim85_eez[, c("x", "y")])]
 setcolorder(clim85_eez, c("MnSST_HCO", "MnSST_RCP85", "sdSST_HCO", "cid", "x", "y"))
 
+# Create the conductance matrix (all ocean cells considered to have conductance of 1)
+## use distance from EEZ to increase "cost" of moving to analogue
+cD <- mask(distance(eez_mask), ocean_mask, inverse = FALSE)
+cD[cD < 1] <- 1
+h8 <- transition(as(cD, "Raster"), transitionFunction = mean, directions = 8)
+h8 <- geoCorrection(h8, type = "c")
+
 # climate velocity and distance to analogues under RCP 4.5 restricted to EEZ
 hco_ca45_eez <- dVoCC(clim45_eez, n = 1, tdiff = 7140, method = "Variable", climTol = NA,
-                      geoTol = Inf, distfun = "GreatCircle", trans = NA, lonlat = TRUE)
+                      geoTol = Inf, distfun = "LeastCost", trans = h8, lonlat = TRUE)
 
 # climate velocity and distance to analogues under RCP 8.5 restricted to EEZ
 hco_ca85_eez <- dVoCC(clim85_eez, n = 1, tdiff = 7140, method = "Variable", climTol = NA,
-                      geoTol = Inf, distfun = "GreatCircle", trans = NA, lonlat = TRUE)
+                      geoTol = Inf, distfun = "LeastCost", trans = h8, lonlat = TRUE)
 
 # Distances masked to hotspots only
 analogue_dist_eez <- worldSST_rcp85_eez[[c(1,1,1,1)]]
@@ -625,8 +657,7 @@ analogue_dist_eez
 
 # Save to raster file
 writeRaster(analogue_dist_eez,
-            file.path(outDir, "outputs/climate_analogue_distances_wgs84_eezAnalogues.grd"),
-            overwrite = TRUE)
+            "outputs/climate_analogue_distances_wgs84_eezAnalogues.grd")
 
 global(analogue_dist_eez[[c("RCP45", "RCP85")]], mean, na.rm = TRUE)
 global(analogue_dist_eez[[c("RCP45", "RCP85")]], sd, na.rm = TRUE)
@@ -643,7 +674,7 @@ rdf <- melt(setDT(as.data.frame(rdf, xy = TRUE)), id.vars = c("x", "y"))
 rdf[, variable := factor(variable, levels = c("RCP45", "RCP85", "DeltaDist"))]
 
 # projected shapefiles for aesthetics
-eez_prj <- read_sf(file.path(outDir, "shapes/eez_buffer.shp"))
+eez_prj <- read_sf("shapes/mapping_shapes.gpkg", layer = "eez_buffer")
 
 figS5 <- ggplot() +
   geom_tile(data = rdf[variable != "DeltaDist",], aes(x, y, fill = value)) +
@@ -660,10 +691,10 @@ figS5 <- ggplot() +
           inherit.aes = FALSE, fill = "#E9E9E9", colour = "black") +
   geom_sf(data = bbox_prj, size = 0.25,
           inherit.aes = FALSE, fill = NA, colour = "black") +
-  scale_fill_gradientn(colours = cptcity::cpt("jjg_cbac_seq_cbacYlGnBu09", 100),
-                       limits = c(0, 6500),
-                       labels = function(x) ifelse(test = (seq(0, 6500, by = 500)/500) %% 2 == 0, x, ""),
-                       breaks = seq(0, 6500, by = 500),
+  scale_fill_viridis_c(option = "H", end = 1, begin = 0.05,
+                       limits = c(0, 10000),
+                       labels = function(x) ifelse(test = (seq(0, 10000, by = 1000)/1000) %% 2 == 0, x, ""),
+                       breaks = seq(0, 10000, by = 1000),
                        oob = scales::squish,
                        guide = guide_colourbar(
                          title = "Distance to analogue climate (km)\nconstrained to EEZ only",
@@ -687,12 +718,12 @@ figS5 <- ggplot() +
         strip.text.x = element_text(size = 12, colour = "black", hjust = 0))
 # save to PDF
 ggsave(filename = "FigureS5.pdf", plot = figS5,
-       device = cairo_pdf, path = file.path(outDir, "Figures"),
+       device = cairo_pdf, path = "Figures",
        width = 5, height = 6.5, units = "in", dpi = 350)
 
 # save to PNG for MS
 ggsave(filename = "FigureS5.png", plot = figS5,
-       device = "png", type = "cairo", path = file.path(outDir, "Figures"),
+       device = "png", type = "cairo", path = "Figures",
        bg = "white", width = 5, height = 6.5, units = "in", dpi = 350)
 
 # plot
@@ -715,9 +746,9 @@ ggplot() +
   geom_sf(data = bbox_prj, size = 0.25,
           inherit.aes = FALSE, fill = NA, colour = "black") +
   scale_fill_gradientn(colours = cptcity::cpt("cmocean_curl", 100),
-                       limits = c(-5000, 5000),
-                       labels = function(x) ifelse(test = (seq(-5000, 5000, by = 1000)/1000) %% 2 == 0, x, ""),
-                       breaks = seq(-5000, 5000, by = 1000),
+                       limits = c(-12000, 12000),
+                       labels = function(x) ifelse(test = (seq(-12000, 12000, by = 1000)/2000) %% 2 == 0, x, ""),
+                       breaks = seq(-12000, 12000, by = 1000),
                        oob = scales::squish,
                        guide = guide_colourbar(
                          title = "Difference (RCP 8.5 - RCP 4.5; km)",
@@ -811,23 +842,41 @@ vect45eez <- st_as_sf(gcIntermediate(dif45eez_int[, c("XS", "YS")],
                           dif45eez_int[, c("XE", "YE")],
                           n = 100, addStartEnd = TRUE, 
                           breakAtDateLine = TRUE, sp = TRUE))
+st_crs(vect45eez) <- "EPSG:4326"
+vect45eez <- st_wrap_dateline(st_cast(rotate_prj(vect45eez, mollPrj), "LINESTRING"))
+# turn to data.table for plotting
+## need to use geom_curve for nice plotting
+vect45eez <- data.table(x_start = st_coordinates(st_line_sample(vect45eez, sample = 0))[,1],
+                        x_end = st_coordinates(st_line_sample(vect45eez, sample = 1))[,1],
+                        y_start = st_coordinates(st_line_sample(vect45eez, sample = 0))[,2],
+                        y_end = st_coordinates(st_line_sample(vect45eez, sample = 1))[,2],
+                        Scen = "RCP45")
+
+
 vect85eez <- st_as_sf(gcIntermediate(dif85eez_int[, c("XS", "YS")],
                           dif85eez_int[, c("XE", "YE")],
                           n = 100, addStartEnd = TRUE, 
-                          breakAtDateLine = TRUE, sp = TRUE))
+                          breakAtDateLine = FALSE, sp = TRUE))
+st_crs(vect85eez) <- "EPSG:4326"
+vect85eez <- st_cast(rotate_prj(vect85eez, mollPrj), "LINESTRING")
+vect85eez <- data.table(x_start = st_coordinates(st_line_sample(vect85eez, sample = 0))[,1],
+                        x_end = st_coordinates(st_line_sample(vect85eez, sample = 1))[,1],
+                        y_start = st_coordinates(st_line_sample(vect85eez, sample = 0))[,2],
+                        y_end = st_coordinates(st_line_sample(vect85eez, sample = 1))[,2],
+                        Scen = "RCP85")
 
-vect45eez$Scen <- "RCP45"
-vect85eez$Scen <- "RCP85"
+vectseez <- rbindlist(list(vect45eez, vect85eez))
+# ranomdly sort the rows for plotting
+## essentially so rcp85 doesnt dominate the plot!
+{set.seed(54); vectseez <- vectseez[sample(1:nrow(vectseez), nrow(vectseez), replace = FALSE), ]}
 
-vectseez <- rbind(vect45eez, vect85eez)
-
-# write out and project for plotting. See below for why
-write_sf(vectseez, file.path(outDir, "outputs/vects_eez.shp"))
-#{plot(project(eez_mask, templ_ras, "ngb")); lines(vect(st_transform(vectseez, mollPrj)))}
-
-# Projected lines from ArcGIS - issue with wrapping caused
-# by pacific centered projection?
-vectseez <- read_sf(file.path(outDir, "shapes/hs_eez_displacement.shp"))
+# # write out and project for plotting. See below for why
+# write_sf(vectseez, file.path(outDir, "outputs/vects_eez.shp"))
+# #{plot(project(eez_mask, templ_ras, "ngb")); lines(vect(st_transform(vectseez, mollPrj)))}
+# 
+# # Projected lines from ArcGIS - issue with wrapping caused
+# # by pacific centered projection?
+# vectseez <- read_sf(file.path(outDir, "shapes/hs_eez_displacement.shp"))
 
 figS6 <- ggplot() +
   geom_sf(data = land_prj, size = 0.25,
@@ -836,11 +885,16 @@ figS6 <- ggplot() +
           inherit.aes = FALSE, fill = NA, colour = "black") +
   geom_sf(data = eez_prj, size = 0.25,
           inherit.aes = FALSE, fill = NA, colour = "#91608D") +
-  
-  geom_sf(data = vectseez, aes(colour = Scen), size = 1, #colour = "#D6BE6983",
-          inherit.aes = FALSE, show.legend = TRUE) +
-  scale_colour_manual(values = c("RCP45" = "#D6BE6983",
-                                  "RCP85" = "#D66A5E83"),
+  geom_curve(data = vectseez, 
+             aes(x = x_start, y = y_start, xend = x_end, yend = y_end,
+                 group = Scen, colour = Scen), curvature = 0.1,
+             arrow = arrow(length = unit(0.03, "npc"),
+                           angle = 30, end = "last", type = "open")) +
+  # geom_sf(data = vects, aes(colour = Scen), size = 1, #colour = "#D6BE6983",
+  #         arrow = arrow(length=unit(0.30,"cm"), ends="first", type = "closed"),
+  #         inherit.aes = FALSE, show.legend = TRUE) +
+  scale_colour_manual(values = c("RCP45" = "#f4a58283",
+                                 "RCP85" = "#b2182b83"),
                       labels = c("RCP45" = "RCP 4.5",
                                   "RCP85" = "RCP 8.5"),
                         guide = guide_legend(
