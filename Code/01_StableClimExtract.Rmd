@@ -26,6 +26,9 @@ knitr::opts_chunk$set(echo = TRUE, rows.print = 10, cols.print = 10,
                       tidy = "styler", dpi = 320, fig.align = "center",
                       strip.white = TRUE, 
                       dev.args = list(png  = list(type = "cairo")))
+if(!dir.exists("outputs")) {
+  dir.create("outputs/", recursive = TRUE)
+}
 ```
 
 ## Extract data from StableClim
