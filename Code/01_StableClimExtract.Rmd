@@ -36,7 +36,7 @@ We need to extract the climate data from the StableClim (@brown2020) database. T
 
 In this section we load the necessary libraries, set the paths to the StableClim database, and import a land/sea mask for plotting.
 
-```{r setSC, eval = TRUE, echo = FALSE}
+```{r setSC, eval = TRUE, echo = TRUE}
 # load libs
 library(terra) ## 1.4.19
 library(data.table) ## 1.14.2
@@ -81,8 +81,6 @@ if (!file.exists("outputs/ocean_mask.grd")) {
   } else {
     ocean_mask <- rast("outputs/ocean_mask.grd")
   }
-
-
 ```
 
 ## Load StableClim data
@@ -261,7 +259,7 @@ snr_ras <- rast(list(pal_rast_sub$ocn_warm$stSNR_ocn_warm,
 
 Looking at the SNR rasters, we see that under RCP 8.5, SNR values are much higher through the tropics and mid-latitudes, but lower in the Atlantic - particularly south of Greenland. In this plot, warmer colours show higher SNR values.
 
-```{r plotSNR, echo = TRUE, eval = TRUE, fig.show='asis', fig.cap="SNR values for the past and two future scenarios", fig.align='center', fig.height=5, fig.width=9}
+```{r plotSNR, echo = FALSE, eval = TRUE, fig.show='asis', fig.cap="SNR values for the past and two future scenarios", fig.align='center', fig.height=5, fig.width=9}
 land <- ne_coastline(50, returnclass = "sf")
 x <- mask(snr_ras, ocean_mask)
 names(x) <- c("Paleo", "RCP 4.5", "RCP 8.5")
@@ -375,7 +373,7 @@ writeRaster(snr_deltaRCP85[[1]], "outputs/snr_st_delta_rcp85.grd")
 
 Plots of Delta SNR, show that SNR is higher in the future for most of the world with the exception of the Atlantic.
 
-```{r plotDelSNR, echo = TRUE, fig.cap="Negative values = higher SNR in the past", fig.align='center', fig.height=3.5, fig.width=9}
+```{r plotDelSNR, echo = FALSE, fig.cap="Negative values = higher SNR in the past", fig.align='center', fig.height=3.5, fig.width=9}
 x <- mask(rast(list(snr_deltaRCP45[["Delta_stSNR_ocn_warm"]],
                     snr_deltaRCP85[["Delta_stSNR_ocn_warm"]])), 
           mask = ocean_mask)
@@ -414,7 +412,7 @@ ggplot() +
 
 Delta SNR between the two SNR scenarios, shows that SNR is higher under RCP 8.5
 
-```{r plotDelSNRRCP, echo = TRUE, fig.cap="SNR RCP 8.5 - SNR RCP 4.5",fig.align='center', fig.height=5, fig.width=8}
+```{r plotDelSNRRCP, echo = FALSE, fig.cap="SNR RCP 8.5 - SNR RCP 4.5",fig.align='center', fig.height=5, fig.width=8}
 x <- x[["RCP 8.5"]] - x[["RCP 4.5"]]
 names(x) <- "value"
 xdf <- setDT(as.data.frame(x, xy = TRUE))

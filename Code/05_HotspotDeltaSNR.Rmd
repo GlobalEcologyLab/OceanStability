@@ -103,7 +103,7 @@ regions_w_hs <- regions[regions$Name %in% hs_int$Name, ]
 
 A quick plot of the regions that contain hotspots, and the hotspot locations shows the following
 
-```{r plotRegWHot, echo = TRUE, fig.show='asis', fig.cap="Plot of marine biogeographic realms the contain marine biodiversity hotspots", fig.align='center', fig.height = 5, fig.width = 8, out.width='100%'}
+```{r plotRegWHot, echo = FALSE, fig.show='asis', fig.cap="Plot of marine biogeographic realms the contain marine biodiversity hotspots", fig.align='center', fig.height = 5, fig.width = 8, out.width='100%'}
 ggplot() + 
   geom_sf(data = oceans, fill = "grey90", colour = NA) +
   geom_sf(data = regions_w_hs, aes(fill = Name), colour = "white", size = 0.75) +

@@ -18,6 +18,7 @@ rotate_prj <- function(x, crs) {
     c(0 - offset, -90),
     c(-0.0001 - offset, -90),
     c(-0.0001 - offset, 90)))), crs = 4326)
+  #xInt <- st_intersects(x, polygon, sparse = FALSE)
   # trim anything the intersect the centre longitude
   x2 <- st_difference(x, polygon)
   # project to requested crs

@@ -116,7 +116,7 @@ values(sppRich_coarse) <- round(values(sppRich_coarse))
 sppRich_coarse
 ```
 
-```{r plotSppRich, echo = TRUE, out.width='100%', fig.height = 8, fig.cap="Marine species richness data from Aquamaps"}
+```{r plotSppRich, echo = FALSE, out.width='100%', fig.height = 8, fig.cap="Marine species richness data from Aquamaps"}
 xdf <- setDT(as.data.frame(sppRich[["Thresh_0.4"]], xy = TRUE))
 xdf[, Res := "Orig"]
 xdf_Coarse <- setDT(as.data.frame(sppRich_coarse, xy = TRUE))
@@ -159,7 +159,7 @@ ggplot() +
 
 A quick plot of the values shows the extreme right skewed distribution of both the original and aggregated dataset.
 
-```{r sppRichHist, echo = TRUE, out.width='100%'}
+```{r sppRichHist, echo = FALSE, out.width='100%'}
 xdf_NAomit <- na.omit(values(sppRich))
 xdf_NAomitCoarse <- na.omit(values(sppRich_coarse))
 {par(mfrow = c(1, 2), mai = c(0.8,0.5,0.5,0))
@@ -235,7 +235,7 @@ st_write(hs_coarse[2], "outputs/output_shapes.gpkg", layer = "marine_hotspots",
 
 The different threshold values used to define hotspots of species richness correspond to values of `r round(thresh[1])` (scaled = `r round(scales::rescale(x = round(thresh[1]), from = c(1, sMax), to = c(0,1)), 2)`), `r round(thresh[2])` (scaled = `r round(scales::rescale(x = round(thresh[2]), from = c(1, sMax), to = c(0,1)), 2)`), and `r round(thresh[3])` (scaled = `r round(scales::rescale(x = round(thresh[3]), from = c(1, sMax), to = c(0,1)), 2)`).
 
-```{r plotCoarseData, echo = TRUE, out.width='100%', fig.cap="Marine species richness data aggregated to 2.5° with marine species richness hotspots overlaid."}
+```{r plotCoarseData, echo = FALSE, out.width='100%', fig.cap="Marine species richness data aggregated to 2.5° with marine species richness hotspots overlaid."}
 xdf <- as.data.frame(sppRich_rescale, xy = TRUE, na.rm = TRUE)
 ggplot() +
   geom_raster(data = xdf, aes(x, y, fill = Thresh_0.4)) +

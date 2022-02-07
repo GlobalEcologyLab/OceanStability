@@ -59,8 +59,6 @@ land <- ne_countries(110, returnclass = "sf")
 oceans <- read_sf("outputs/output_shapes.gpkg", layer = "ne_ocean")
 
 # Marine realms from Costello et al
-## need to source
-## available from https://auckland.figshare.com/articles/GIS_shape_files_of_realm_maps/5596840
 regions <- read_sf("outputs/output_shapes.gpkg", layer = "marine_regions_clipped")
 
 st_agr(oceans) <- "constant"
@@ -93,7 +91,7 @@ snr_comb
 
 A plot of the climate data shows us the following (we saw a similar plot in **01 - StableClim Extract**)
 
-```{r plotSNR, echo = TRUE, fig.show='asis', fig.cap="SNR values for the past and two future scenarios", fig.align='center', fig.height=5, fig.width=9}
+```{r plotSNR, echo = FALSE, fig.show='asis', fig.cap="SNR values for the past and two future scenarios", fig.align='center', fig.height=5, fig.width=9}
 xdf <- melt(setDT(as.data.frame(rast(list(paleo_snr, rcp_snr)),
                                 xy = TRUE)), id.vars = c("x", "y"))
 xdf[, variable := factor(variable, levels = c("TraCE", "RCP45", "RCP85"))]
@@ -200,7 +198,7 @@ fwrite(reg_SNR, "outputs/SNR_Cell.csv")
 
 We can see that the SNR values are lower in the paleo period, than under the two RCP scenarios. Also, SNR under RCP 8.5 is higher than that under RCP 4.5
 
-```{r SNRcomparison, fig.show='asis', fig.cap="SNR values within each region, standardised across time. n = number of cells in each region.", fig.align='center', fig.height=12, fig.width=12, out.width='100%'}
+```{r SNRcomparison, echo = FALSE, fig.show='asis', fig.cap="SNR values within each region, standardised across time. n = number of cells in each region.", fig.align='center', fig.height=12, fig.width=12, out.width='100%'}
 ggplot(reg_SNR, aes(x = Scenario, y = SNR,
                     group = interaction(Region, Scenario),
                     fill = Scenario)) +
@@ -231,7 +229,7 @@ From the sample sizes in the plot above we'll exclude the following regions: (i)
 
 Here we'll generate density plots of SNR values within each region which can then be used to estimate the overlap between SNR values in the past and future under both RCP scenarios.
 
-```{r overlapHisto, fig.show='asis', fig.cap="Figure S2 - Density plots of SNR within each marine bioregion", fig.align='center', fig.height=12, fig.width=12, out.width='100%'}
+```{r overlapHisto, echo = FALSE, fig.show='asis', fig.cap="Figure S2 - Density plots of SNR within each marine bioregion", fig.align='center', fig.height=12, fig.width=12, out.width='100%'}
 exc_reg <- nCells[N < 5, ][["Region"]]
 # Calculate median and quantiles for plotting
 # Calculate Q10, 50, and 90 to add to plot
@@ -400,7 +398,7 @@ writeRaster(regions_overlap,
 
 A quick plot of the overlap in each of the regions shows the following
 
-```{r plotOV, fig.show='asis', fig.cap="Figure S3 - Plot of SNR overlap within each marine bioregion", fig.align='center', fig.height = 6.5, fig.width = 5, out.width='100%'}
+```{r plotOV, echo = FALSE, fig.show='asis', fig.cap="Figure S3 - Plot of SNR overlap within each marine bioregion", fig.align='center', fig.height = 6.5, fig.width = 5, out.width='100%'}
 xdf <- setDT(as.data.frame(regions_overlap, xy = TRUE, na.rm = TRUE))
 xdf <- melt(xdf, id.vars = c("x", "y"), variable.name = "Scenario",
             value.name = "Overlap")
@@ -456,7 +454,7 @@ sapply(c("RCP45_Overlap", "RCP85_Overlap"), function(i) {
 
 Here we make figure 2 and figure 3. Figure 2 is made using the overlap data for RCP 4.5, but can be easily changed to used RCP 8.5.
 
-```{r makeFig2, fig.width=9, out.width='100%', results='markup', fig.show='hold'}
+```{r makeFig2, echo = FALSE, fig.width=9, out.width='100%', results='markup', fig.show='hold'}
 mollPrj <- 'PROJCS["Pacific_Centrered_Mollweide",
  GEOGCS["GCS_WGS_1984",
   DATUM["D_WGS_1984",
@@ -732,7 +730,7 @@ fig03 + labs(caption = "Figure 03 - Temporal changes in latitudinal mean annual 
 
 Here we make Figure S2 - the overlap plot for RCP 8.5
 
-```{r figS2, fig.width=9, out.width='100%', results='hide', fig.show='hold'}
+```{r figS2, echo = FALSE, fig.width=9, out.width='100%', results='hide', fig.show='hold'}
 # Projected bivariate map
 ovrProj <- project(regions_overlap[["RCP85_Overlap"]], 
                    y = templ_ras, method = "near")

@@ -55,9 +55,7 @@ coastlines <- ne_coastline(50, returnclass = "sf")
 land <- ne_countries(50, returnclass = "sf")
 oceans <- read_sf("outputs/output_shapes.gpkg", layer = "ne_ocean")
 
-# Marine realms from Costello et al
-## need to source
-## available from https://auckland.figshare.com/articles/GIS_shape_files_of_realm_maps/5596840
+# Marine realms from Costello et al clipped to oceans
 regions <- read_sf("outputs/output_shapes.gpkg", layer = "marine_regions_clipped")
 
 st_agr(oceans) <- "constant"
@@ -89,7 +87,7 @@ The bivariate mapping code has already been sourced from [github](https://gist.g
 
 A quick plot of the values in the rasters suggests that terciles might not be appropriate (see @lucchesi2017 for why terciles are *usually* a good choice), due to the extremely skewed distributions of the datasets.
 
-```{r sppRichHist, echo = TRUE, out.width='100%'}
+```{r sppRichHist, echo = FALSE, out.width='100%'}
 delCols <- c("#44B360", "#F7900A")
 msrCols <- c("#44B360", "#3A88B5")
 xdf_Delta <- na.omit(values(rs[["DeltaSNR"]]))
@@ -124,7 +122,7 @@ axis(2); axis(3); box()}
 
 A more suitable classification may come from using Fishers clustering algorithm (@fisher1958, @wand1997). The black dotted line corresponds to the scaled 95th percentile used to identify hotspots of species richness.
 
-```{r sppRichHistJenks, echo = TRUE, fig.height = 5, out.width='100%'}
+```{r sppRichHistJenks, echo = FALSE, fig.height = 5, out.width='100%'}
 nClass <- 4
 delCols <- c("#44B360", "#F7900A")
 msrCols <- c("#44B360", "#3A88B5")
@@ -187,7 +185,7 @@ bivMapDF <- melt(bivMapDF, id.vars = c("x", "y"),
 
 A very quick plot of the relationship between Delta SNR and marine species richness, shows the following.
 
-```{r bivPlot, echo = TRUE, out.width='100%', fig.cap="Delta SNR vs Marine Species richness", eval = TRUE}
+```{r bivPlot, echo = FALSE, out.width='100%', fig.cap="Delta SNR vs Marine Species richness", eval = TRUE}
 map <- ggplot() +
   geom_raster(data = bivMapDF, aes(x = x, y = y, fill = bivVal),
               show.legend = FALSE) +
@@ -307,7 +305,7 @@ msr_dens
 
 Here we combine the various plots to produce figure 1. As part of making figure 1, the bivariate map is converted to a Mollweide equal area projection, with a central longitude of 160°
 
-```{r makeFig1, fig.height=4, fig.width=10, out.width='100%', fig.cap="Figure 01 - Bivariate map of delta SNR vs marine species richness (a). Histograms show the latitundinal variation in marine species richness (b) and delta SNR (c). Inset plots show density plots of marine species richess (d) and delta SNR (e). Colours on plots d and e correpsond to the colours along the axes of the bivariate plot, with changes in colours showing the location of break points.", results='hide', fig.show='hold'}
+```{r makeFig1, fig.height=4, fig.width=10, out.width='100%', fig.cap="Figure 01 - Bivariate map of delta SNR vs marine species richness (a). Histograms show the latitundinal variation in marine species richness (b) and delta SNR (c). Inset plots show density plots of marine species richess (d) and delta SNR (e). Colours on plots d and e correpsond to the colours along the axes of the bivariate plot, with changes in colours showing the location of break points.", results='hide', fig.show='hold', echo = FALSE}
 mollPrj <- 'PROJCS["Pacific_Centrered_Mollweide",
  GEOGCS["GCS_WGS_1984",
   DATUM["D_WGS_1984",

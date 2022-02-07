@@ -45,7 +45,7 @@ library(spatialEco)
 library(geosphere)
 library(gdistance)
 
-sf_use_s2(TRUE)
+sf_use_s2(FALSE)
 
 source("source/rotate_prj.R")
 
@@ -141,7 +141,7 @@ names(rcp85) <- "RCP85"
 
 A quick plot of the averages shows warmer conditions by 2090 than that experienced during the Holocene Climatic Optimum.
 
-```{r plotTemps, echo = TRUE, fig.show='asis', fig.cap="SST values during the Holocene Climatic Optimum and the future under RCP 4.5 and RCP 8.5", fig.align='center', fig.height=5, fig.width=9}
+```{r plotTemps, echo = FALSE, fig.show='asis', fig.cap="SST values during the Holocene Climatic Optimum and the future under RCP 4.5 and RCP 8.5", fig.align='center', fig.height=5, fig.width=9}
 xdf <- melt(setDT(
   as.data.frame(rast(list(hco[["HCO"]], rcp45, rcp85)),
                 xy = TRUE)), id.vars = c("x", "y"))
@@ -237,7 +237,7 @@ global(analogue_dist[[c("RCP45", "RCP85")]], sd, na.rm = TRUE)
 
 A plot of the distances to climate analogues within each of the biodiversity hotspots cells shows
 
-```{r plotDist, echo = TRUE, fig.show='asis', fig.cap="Distance to climate analogues under RCP 4.5 and RCP 8.5", fig.align='center', fig.height=10, fig.width=9, results='hide'}
+```{r plotDist, echo = FALSE, fig.show='asis', fig.cap="Distance to climate analogues under RCP 4.5 and RCP 8.5", fig.align='center', fig.height=10, fig.width=9, results='hide'}
 mollPrj <- 'PROJCS["Pacific_Centrered_Mollweide",
  GEOGCS["GCS_WGS_1984",
   DATUM["D_WGS_1984",
@@ -325,7 +325,7 @@ figS3 + labs(caption = "Figure S3 - Distance to climate analogue under RCP 4.5 a
 
 With differences between the two RCP scenarios showing grid cell differences of `r floor(min(global(r[["DeltaDist"]], min, na.rm=TRUE)))` to `r ceiling(max(global(r[["DeltaDist"]], max, na.rm=TRUE)))` km between the two scenarios. On average however, under RCP 8.5 species in hotspots will have to move an additional `r round(mean(as.vector(values(r[["DeltaDist"]])), na.rm = TRUE))` km to find climate analogues.
 
-```{r plotDistDelta, echo = TRUE, fig.show='asis', fig.cap="Differences between distances to climate analogues under RCP 4.5 and RCP 8.5", fig.align='center', fig.height=5, fig.width=9}
+```{r plotDistDelta, echo = FALSE, fig.show='asis', fig.cap="Differences between distances to climate analogues under RCP 4.5 and RCP 8.5", fig.align='center', fig.height=5, fig.width=9}
 ggplot() +
   geom_raster(data = rdf[variable == "DeltaDist",], aes(x, y, fill = value)) +
   geom_sf(data = land_prj, size = 0.25,
@@ -485,7 +485,7 @@ The results show that `r round(prop.table(table(as.factor(Dif45_prop)))*100)[1]`
 
 We can also plot the displacement for each marine hotspot that has a climate analogue in the future
 
-```{r vectDisp, echo = TRUE, results='hide', fig.show='asis', out.width='100%', fig.align='center', fig.height=5, fig.width=9}
+```{r vectDisp, echo = FALSE, results='hide', fig.show='asis', out.width='100%', fig.align='center', fig.height=5, fig.width=9}
 # Only keep points in hotspot locations
 dif45sf <- st_as_sf(as.data.frame(Dif45), coords = c("XS", "YS"),
                     crs = "EPSG:4326")
@@ -512,7 +512,7 @@ dif85_int <- as.data.frame(dif85_int)
 
 vect45 <- st_as_sf(gcIntermediate(dif45_int[, c("XS", "YS")],
                           dif45_int[, c("XE", "YE")],
-                          n = 100, addStartEnd = TRUE, 
+                          n = 1000, addStartEnd = TRUE, 
                           breakAtDateLine = TRUE, sp = TRUE))
 st_crs(vect45) <- "EPSG:4326"
 vect45 <- st_cast(rotate_prj(vect45, mollPrj), "LINESTRING")
@@ -527,7 +527,7 @@ vect45 <- data.table(x_start = st_coordinates(st_line_sample(vect45, sample = 0)
 # RCP 8.5
 vect85 <- st_as_sf(gcIntermediate(dif85_int[, c("XS", "YS")],
                           dif85_int[, c("XE", "YE")],
-                          n = 100, addStartEnd = TRUE, 
+                          n = 1000, addStartEnd = TRUE, 
                           breakAtDateLine = TRUE, sp = TRUE))
 st_crs(vect85) <- "EPSG:4326"
 vect85 <- st_cast(rotate_prj(vect85, mollPrj), "LINESTRING")
@@ -539,8 +539,8 @@ vect85 <- data.table(x_start = st_coordinates(st_line_sample(vect85, sample = 0)
                      Scen = "RCP85")
 
 vects <- rbindlist(list(vect45, vect85))
-# ranomdly sort the rows for plotting
-## essentially so rcp85 doesnt dominate the plot!
+# randomly sort the rows for plotting
+## essentially so rcp85 doesn't dominate the plot!
 {set.seed(54); vects <- vects[sample(1:nrow(vects), nrow(vects), replace = FALSE), ]}
 
 figS4 <- ggplot() +
@@ -624,7 +624,7 @@ clim85_eez <- setDT(as.data.frame(worldSST_rcp85_eez, xy = TRUE))
 clim85_eez[, cid := cellFromXY(worldSST_rcp85_eez, xy = clim85_eez[, c("x", "y")])]
 setcolorder(clim85_eez, c("MnSST_HCO", "MnSST_RCP85", "sdSST_HCO", "cid", "x", "y"))
 
-# Create the conductance matrix (all ocean cells considered to have conductance of 1)
+# Create the conductance matrix
 ## use distance from EEZ to increase "cost" of moving to analogue
 cD <- mask(distance(eez_mask), ocean_mask, inverse = FALSE)
 cD[cD < 1] <- 1
@@ -665,7 +665,7 @@ global(analogue_dist_eez[[c("RCP45", "RCP85")]], sd, na.rm = TRUE)
 
 Plotting up the analysis where analogue climates need to exist inside the EEZ boundaries shows the following. Note the scale difference between this plot and the earlier one.
 
-```{r plotDistEEZ, echo = TRUE, fig.show='asis', fig.cap="Distance to climate analogues under RCP 4.5 and RCP 8.5 constrained to EEZ", fig.align='center', fig.height=10, fig.width=9, results='hide'}
+```{r plotDistEEZ, echo = FALSE, fig.show='asis', fig.cap="Distance to climate analogues under RCP 4.5 and RCP 8.5 constrained to EEZ", fig.align='center', fig.height=10, fig.width=9, results='hide'}
 # Projected distance map
 r <- analogue_dist_eez[[c(1:2)]]
 r[["DeltaDist"]] <- r[["RCP85"]] - r[["RCP45"]]
@@ -732,7 +732,7 @@ figS5 + labs(caption = "Figure S5 - Distance to climate analogue under RCP 4.5 a
 
 Differences between the two scenarios are much greater when the analysis is restricted to EEZ only (not the scale difference between this plot, and the previous plot of differences). Looking only at the EEZ we see differences between the two RCP scenarios of `r floor(min(global(r[["DeltaDist"]], min, na.rm=TRUE)))` to `r ceiling(max(global(r[["DeltaDist"]], max, na.rm=TRUE)))` km between the two scenarios. On average however, under RCP 8.5 species in hotspots will have to move an additional `r round(mean(as.vector(values(r[["DeltaDist"]])), na.rm = TRUE))` km to find climate analogues.
 
-```{r deltaDistEEZ, echo = TRUE, fig.show='asis', fig.cap="Differences between distances to climate analogues under RCP 4.5 and RCP 8.5", fig.align='center', fig.height=5, fig.width=9}
+```{r deltaDistEEZ, echo = FALSE, fig.show='asis', fig.cap="Differences between distances to climate analogues under RCP 4.5 and RCP 8.5", fig.align='center', fig.height=5, fig.width=9}
 ggplot() +
   geom_tile(data = rdf[variable == "DeltaDist",], aes(x, y, fill = value)) +
   geom_sf(data = land_prj, size = 0.25,
@@ -746,9 +746,9 @@ ggplot() +
   geom_sf(data = bbox_prj, size = 0.25,
           inherit.aes = FALSE, fill = NA, colour = "black") +
   scale_fill_gradientn(colours = cptcity::cpt("cmocean_curl", 100),
-                       limits = c(-12000, 12000),
-                       labels = function(x) ifelse(test = (seq(-12000, 12000, by = 1000)/2000) %% 2 == 0, x, ""),
-                       breaks = seq(-12000, 12000, by = 1000),
+                       limits = c(-8000, 8000),
+                       labels = function(x) ifelse(test = (seq(-8000, 8000, by = 1000)/4000) %% 2 == 0, x, ""),
+                       breaks = seq(-8000, 8000, by = 1000),
                        oob = scales::squish,
                        guide = guide_colourbar(
                          title = "Difference (RCP 8.5 - RCP 4.5; km)",
@@ -814,7 +814,7 @@ round(prop.table(table(as.factor(Dif85_prop_eez)))*100)
 
 We can also plot the displacement for each marine hotspot that has a climate analogue in the future restricted to the EEZ
 
-```{r vectDispEEZ, echo = TRUE, results='hide', fig.show='asis', out.width='100%', fig.align='center', fig.height=5, fig.width=9}
+```{r vectDispEEZ, echo = FALSE, results='hide', fig.show='asis', out.width='100%', fig.align='center', fig.height=5, fig.width=9}
 # Only keep points in hotspot locations
 dif45eezsf <- st_as_sf(as.data.frame(Dif45_eez), coords = c("XS", "YS"),
                     crs = "EPSG:4326")
@@ -840,44 +840,37 @@ dif85eez_int <- as.data.frame(dif85eez_int)
 
 vect45eez <- st_as_sf(gcIntermediate(dif45eez_int[, c("XS", "YS")],
                           dif45eez_int[, c("XE", "YE")],
-                          n = 100, addStartEnd = TRUE, 
+                          n = 1000, addStartEnd = TRUE, 
                           breakAtDateLine = TRUE, sp = TRUE))
 st_crs(vect45eez) <- "EPSG:4326"
-vect45eez <- st_wrap_dateline(st_cast(rotate_prj(vect45eez, mollPrj), "LINESTRING"))
-# turn to data.table for plotting
-## need to use geom_curve for nice plotting
-vect45eez <- data.table(x_start = st_coordinates(st_line_sample(vect45eez, sample = 0))[,1],
-                        x_end = st_coordinates(st_line_sample(vect45eez, sample = 1))[,1],
-                        y_start = st_coordinates(st_line_sample(vect45eez, sample = 0))[,2],
-                        y_end = st_coordinates(st_line_sample(vect45eez, sample = 1))[,2],
-                        Scen = "RCP45")
+vect45eez <- st_cast(vect45eez, "LINESTRING",
+                     group_or_split = TRUE, do_split = TRUE, warn = TRUE)
+vect45eez <- rotate_prj(vect45eez, mollPrj)
+vect45eez <- st_cast(vect45eez, "LINESTRING",
+                     group_or_split = TRUE, do_split = TRUE, warn = TRUE)
 
-
+# RCP 8.5
 vect85eez <- st_as_sf(gcIntermediate(dif85eez_int[, c("XS", "YS")],
                           dif85eez_int[, c("XE", "YE")],
-                          n = 100, addStartEnd = TRUE, 
-                          breakAtDateLine = FALSE, sp = TRUE))
+                          n = 1000, addStartEnd = TRUE, 
+                          breakAtDateLine = TRUE, sp = TRUE))
 st_crs(vect85eez) <- "EPSG:4326"
-vect85eez <- st_cast(rotate_prj(vect85eez, mollPrj), "LINESTRING")
-vect85eez <- data.table(x_start = st_coordinates(st_line_sample(vect85eez, sample = 0))[,1],
-                        x_end = st_coordinates(st_line_sample(vect85eez, sample = 1))[,1],
-                        y_start = st_coordinates(st_line_sample(vect85eez, sample = 0))[,2],
-                        y_end = st_coordinates(st_line_sample(vect85eez, sample = 1))[,2],
-                        Scen = "RCP85")
 
-vectseez <- rbindlist(list(vect45eez, vect85eez))
-# ranomdly sort the rows for plotting
-## essentially so rcp85 doesnt dominate the plot!
+vect85eez <- st_cast(vect85eez, "LINESTRING",
+                     group_or_split = TRUE, do_split = TRUE, warn = TRUE)
+vect85eez <- rotate_prj(vect85eez, mollPrj)
+vect85eez <- st_cast(vect85eez, "LINESTRING",
+                     group_or_split = TRUE, do_split = TRUE, warn = TRUE)
+
+vectseez <- rbind(vect45eez, vect85eez)
+vectseez$Scen <- c(rep("RCP45", nrow(vect45eez)),
+                   rep("RCP85", nrow(vect85eez)))
+# randomly sort the rows for plotting
+## essentially so rcp85 doesn't dominate the plot!
 {set.seed(54); vectseez <- vectseez[sample(1:nrow(vectseez), nrow(vectseez), replace = FALSE), ]}
 
-# # write out and project for plotting. See below for why
-# write_sf(vectseez, file.path(outDir, "outputs/vects_eez.shp"))
-# #{plot(project(eez_mask, templ_ras, "ngb")); lines(vect(st_transform(vectseez, mollPrj)))}
-# 
-# # Projected lines from ArcGIS - issue with wrapping caused
-# # by pacific centered projection?
-# vectseez <- read_sf(file.path(outDir, "shapes/hs_eez_displacement.shp"))
-
+# unfortunately geom_sf doesn't support arrows (!), and in this case 
+# (due to lines crossing 160° meridian), arrows need to be added in illustrator.
 figS6 <- ggplot() +
   geom_sf(data = land_prj, size = 0.25,
           inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
@@ -885,14 +878,8 @@ figS6 <- ggplot() +
           inherit.aes = FALSE, fill = NA, colour = "black") +
   geom_sf(data = eez_prj, size = 0.25,
           inherit.aes = FALSE, fill = NA, colour = "#91608D") +
-  geom_curve(data = vectseez, 
-             aes(x = x_start, y = y_start, xend = x_end, yend = y_end,
-                 group = Scen, colour = Scen), curvature = 0.1,
-             arrow = arrow(length = unit(0.03, "npc"),
-                           angle = 30, end = "last", type = "open")) +
-  # geom_sf(data = vects, aes(colour = Scen), size = 1, #colour = "#D6BE6983",
-  #         arrow = arrow(length=unit(0.30,"cm"), ends="first", type = "closed"),
-  #         inherit.aes = FALSE, show.legend = TRUE) +
+  geom_sf(data = vectseez, aes(colour = Scen), size = 1, #colour = "#D6BE6983",
+          inherit.aes = FALSE, show.legend = TRUE) +
   scale_colour_manual(values = c("RCP45" = "#f4a58283",
                                  "RCP85" = "#b2182b83"),
                       labels = c("RCP45" = "RCP 4.5",
@@ -923,12 +910,12 @@ figS6 <- ggplot() +
         legend.direction = "horizontal")
 # save to PDF
 ggsave(filename = "FigureS6.pdf", plot = figS6,
-       device = cairo_pdf, path = file.path(outDir, "Figures"),
+       device = cairo_pdf, path = "Figures",
        width = 7, height = 5, units = "in", dpi = 350)
 
 # save to PNG for MS
 ggsave(filename = "FigureS6.png", plot = figS6,
-       device = "png", type = "cairo", path = file.path(outDir, "Figures"),
+       device = "png", type = "cairo", path = "Figures",
        bg = "white", width = 7, height = 5, units = "in", dpi = 350)
 
 # plot
