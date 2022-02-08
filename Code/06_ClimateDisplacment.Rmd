@@ -515,32 +515,32 @@ vect45 <- st_as_sf(gcIntermediate(dif45_int[, c("XS", "YS")],
                           n = 1000, addStartEnd = TRUE, 
                           breakAtDateLine = TRUE, sp = TRUE))
 st_crs(vect45) <- "EPSG:4326"
-vect45 <- st_cast(rotate_prj(vect45, mollPrj), "LINESTRING")
-# turn to data.table for plotting
-## need to use geom_curve for nice plotting
-vect45 <- data.table(x_start = st_coordinates(st_line_sample(vect45, sample = 0))[,1],
-                     x_end = st_coordinates(st_line_sample(vect45, sample = 1))[,1],
-                     y_start = st_coordinates(st_line_sample(vect45, sample = 0))[,2],
-                     y_end = st_coordinates(st_line_sample(vect45, sample = 1))[,2],
-                     Scen = "RCP45")
-
+vect45 <- st_cast(vect45, "LINESTRING",
+                  group_or_split = TRUE, do_split = TRUE, warn = TRUE)
+vect45 <- rotate_prj(vect45, mollPrj)
+vect45 <- st_cast(vect45, "LINESTRING",
+                  group_or_split = TRUE, do_split = TRUE, warn = TRUE)
 # RCP 8.5
 vect85 <- st_as_sf(gcIntermediate(dif85_int[, c("XS", "YS")],
-                          dif85_int[, c("XE", "YE")],
-                          n = 1000, addStartEnd = TRUE, 
-                          breakAtDateLine = TRUE, sp = TRUE))
+                                  dif85_int[, c("XE", "YE")],
+                                  n = 1000, addStartEnd = TRUE,
+                                  breakAtDateLine = TRUE, sp = TRUE))
 st_crs(vect85) <- "EPSG:4326"
-vect85 <- st_cast(rotate_prj(vect85, mollPrj), "LINESTRING")
-# for plotting only.
-vect85 <- data.table(x_start = st_coordinates(st_line_sample(vect85, sample = 0))[,1],
-                     x_end = st_coordinates(st_line_sample(vect85, sample = 1))[,1],
-                     y_start = st_coordinates(st_line_sample(vect85, sample = 0))[,2],
-                     y_end = st_coordinates(st_line_sample(vect85, sample = 1))[,2],
-                     Scen = "RCP85")
 
-vects <- rbindlist(list(vect45, vect85))
+vect85 <- st_cast(vect85, "LINESTRING",
+                  group_or_split = TRUE, do_split = TRUE, warn = TRUE)
+vect85 <- rotate_prj(vect85, mollPrj)
+vect85 <- st_cast(vect85, "LINESTRING",
+                  group_or_split = TRUE, do_split = TRUE, warn = TRUE)
+
+vects <- rbind(vect45, vect85)
+vects$Scen <- c(rep("RCP45", nrow(vect45)),
+                rep("RCP85", nrow(vect85)))
+
 # randomly sort the rows for plotting
 ## essentially so rcp85 doesn't dominate the plot!
+## unfortunately geom_sf doesn't support arrows (!), and in this case 
+## (due to lines crossing 160° meridian), arrows need to be added in illustrator.
 {set.seed(54); vects <- vects[sample(1:nrow(vects), nrow(vects), replace = FALSE), ]}
 
 figS4 <- ggplot() +
@@ -548,14 +548,14 @@ figS4 <- ggplot() +
           inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
   geom_sf(data = hotspots_prj, size = 0.25,
           inherit.aes = FALSE, fill = NA, colour = "black") +
-  geom_curve(data = vects, 
-             aes(x = x_start, y = y_start, xend = x_end, yend = y_end,
-                 group = Scen, colour = Scen), curvature = 0.1,
-             arrow = arrow(length = unit(0.03, "npc"),
-                           angle = 30, end = "last", type = "open")) +
-  # geom_sf(data = vects, aes(colour = Scen), size = 1, #colour = "#D6BE6983",
-  #         arrow = arrow(length=unit(0.30,"cm"), ends="first", type = "closed"),
-  #         inherit.aes = FALSE, show.legend = TRUE) +
+  # geom_curve(data = vects, 
+  #            aes(x = x_start, y = y_start, xend = x_end, yend = y_end,
+  #                group = Scen, colour = Scen), curvature = 0.1,
+  #            arrow = arrow(length = unit(0.03, "npc"),
+  #                          angle = 30, end = "last", type = "open")) +
+  geom_sf(data = vects, aes(colour = Scen), size = 1, #colour = "#D6BE6983",
+          # arrow = arrow(length=unit(0.30,"cm"), ends="first", type = "closed"),
+          inherit.aes = FALSE, show.legend = TRUE) +
   scale_colour_manual(values = c("RCP45" = "#f4a58283",
                                  "RCP85" = "#b2182b83"),
                       labels = c("RCP45" = "RCP 4.5",
@@ -722,7 +722,7 @@ ggsave(filename = "FigureS5.pdf", plot = figS5,
        width = 5, height = 6.5, units = "in", dpi = 350)
 
 # save to PNG for MS
-ggsave(filename = "FigureS5.png", plot = figS5,
+ggsave(filename = "Figure4.png", plot = figS5,
        device = "png", type = "cairo", path = "Figures",
        bg = "white", width = 5, height = 6.5, units = "in", dpi = 350)
 
@@ -871,7 +871,7 @@ vectseez$Scen <- c(rep("RCP45", nrow(vect45eez)),
 
 # unfortunately geom_sf doesn't support arrows (!), and in this case 
 # (due to lines crossing 160° meridian), arrows need to be added in illustrator.
-figS6 <- ggplot() +
+fig04 <- ggplot() +
   geom_sf(data = land_prj, size = 0.25,
           inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
   geom_sf(data = hotspots_prj, size = 0.25,
@@ -909,17 +909,17 @@ figS6 <- ggplot() +
         legend.justification = "center",
         legend.direction = "horizontal")
 # save to PDF
-ggsave(filename = "FigureS6.pdf", plot = figS6,
+ggsave(filename = "Figure04.pdf", plot = fig04,
        device = cairo_pdf, path = "Figures",
        width = 7, height = 5, units = "in", dpi = 350)
 
 # save to PNG for MS
-ggsave(filename = "FigureS6.png", plot = figS6,
+ggsave(filename = "Figure04.png", plot = fig04,
        device = "png", type = "cairo", path = "Figures",
        bg = "white", width = 7, height = 5, units = "in", dpi = 350)
 
 # plot
-figS6 + labs(caption = "Figure S6 - Dispersal from hotspot locations to climate analogues under RCP 4.5 and RCP 8.5 restricted to EEZ")
+fig04 + labs(caption = "Figure 4 - Dispersal from hotspot locations to climate analogues under RCP 4.5 and RCP 8.5 restricted to EEZ")
 ```
 
 ## References
