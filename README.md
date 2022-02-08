@@ -18,10 +18,10 @@ You will need to edit some paths present in the files to get them to work proper
 
 For example, in 01_StableClimExtract.Rmd, changes need to be made on the following lines:
 
-Line 29: `root.dir = "/mnt/d/Git/OceanStability")`, this line needs to point to wherever you have extracted/stored the repo
+Line 55: `scPath <- "/mnt/c/StableClim"`, change this to the location of the *StableClim* data
 
-Line 52: `scPath <- "/mnt/c/StableClim"`, change this to the location of the *StableClim* data
+In 02_sppRichness.Rmd, the location of the marine biogeographic realms needs to be changed:
 
-Line 55: `outDir <- "/mnt/d/Git/OceanStability"`, change this to the same location as `root.dir` (Line 29)
+Line 61: `regions <- read_sf("/mnt/c/Shapes/MarineRealmsShapeFile/MarineRealms.shp")`, change this to the location where you have extracted the realms.
 
 You can then either [knit the documents](https://rmarkdown.rstudio.com/articles_intro.html) or run through them [interactively](https://bookdown.org/yihui/rmarkdown/notebook.html#executing-code)
