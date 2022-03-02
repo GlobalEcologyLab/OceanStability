@@ -551,8 +551,7 @@ plot_list <- lapply(plot_regions, function(region) {
              fill = Scenario)) +
   geom_density(alpha = 1/4, position = "identity", 
                aes(y = ..scaled..),
-               size = 0.5, trim = TRUE,
-               kernel = "epanechnikov", bw = "SJ",
+               size = 0.5, kernel = "epanechnikov", bw = "SJ",
                trim = TRUE, adjust = 1.5) +
   scale_fill_manual(values = c(
     "TraCE" = "#2166ac",
@@ -565,10 +564,10 @@ plot_list <- lapply(plot_regions, function(region) {
     "RCP85" = "#b2182b")) +
   scale_x_continuous(limits = c(0,1), expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
-    geom_segment(data = signif.lines[Region == region & Scenario != "RCP85", ],
+   geom_segment(data = signif.lines[Region == region & Scenario != "RCP85", ],
                  aes(y = 0.01, yend = 0.33, x = xMed, xend = xMed,
                      colour = Scenario, group = interaction(Region, Scenario)), 
-                     arrow = arrow(ends = "first", angle = 30, length = unit(.25,"cm"))) +
+                     arrow = grid::arrow(ends = "first", angle = 30, length = unit(.25,"cm"))) +
   theme_void() +
     theme(legend.position = "none")
   return(reg_dens)
@@ -592,25 +591,25 @@ fig02 <- ggdraw({{left_col} | {map02} | {right_col}} +
   draw_line(x = c(0.17, 0.43),
             y = c(0.43, 0.43),
             size = 0.65,
-            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+            arrow = grid::arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
   draw_label(label = "d", size = 16, x = 0.025, y = 0.45, fontface = "bold") +
   ## NA Boreal
   draw_line(x = c(0.17, 0.35, 0.35),
             y = c(0.85, 0.85, 0.78),
            size = 0.65,
-            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+            arrow = grid::arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
   draw_label(label = "b", size = 16, x = 0.025, y = 0.95, fontface = "bold") +
   ## Gulf of Mexico
   draw_line(x = c(0.825, 0.70, 0.70),
             y = c(0.85, 0.85, 0.62),
             size = 0.65,
-            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+            arrow = grid::arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
    draw_label(label = "c", size = 16, x = 0.835, y = 0.95, fontface = "bold") +
   ## Gulf of Cali.
   draw_line(x = c(0.825, 0.70, 0.70),
             y = c(0.43, 0.43, 0.51),
             size = 0.65,
-            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+            arrow = grid::arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
   draw_label(label = "e", size = 16, x = 0.835, y = 0.45, fontface = "bold")
 fig02 <- ggdraw(fig02) +
   ## reef
@@ -623,21 +622,21 @@ fig02 <- ggdraw(fig02) +
   draw_image(hammer, x = 0.825, y = -0.345, clip = "off", width = 0.16)
 
 # Read in the temperature data for the hotspots
-hs_temps <- setDT(readRDS("Source/annual_temps_latbands_hotspots.RDS"))
+hs_temps <- setDT(readRDS("Source/annual_temps_latbands_hotspots_v2.RDS"))
 
-trace <- ggplot(data = hs_temps[Scen == "TraCE" & Year < -100, ], 
+trace <- ggplot(data = hs_temps[Scen == "TraCE" & value >= 18 & Year < -100, ], 
                 aes(x = Year/1000, y = lyr1, fill = value)) +
   geom_raster(na.rm = TRUE) +
   facet_wrap(~Scen, ncol = 1, labeller = as_labeller(c("TraCE" = "a"))) +
-  scale_fill_stepsn(colours = cpt("arendal_temperature", n = 41),
-                    limits = c(12, 32),
+  scale_fill_stepsn(colours = cpt("arendal_temperature", n = 24)[-(1:9)],
+                    limits = c(18, 32),
                     oob = scales::squish,
                     na.value = "transparent",
-                    breaks = seq(12, 32, length = 21),
+                    breaks = seq(18, 32, length = 15),
                     labels = function(x) ifelse(x %% 2L == 0, x, "")) +
   scale_x_continuous(breaks = seq(-21,0,length = 7), expand = c(0, 0),
                      limits = c(-21,0)) +
-  scale_y_continuous(limits = c(-40, 40), 
+  scale_y_continuous(limits = c(-45, 40), 
                      expand = c(0,0),
                      breaks = seq(-40,40,20)) +
   theme_half_open() +
@@ -651,19 +650,82 @@ trace <- ggplot(data = hs_temps[Scen == "TraCE" & Year < -100, ],
         axis.title = element_text(size = 10),
         axis.line = element_line(size = 0.25, colour = "black"),
         axis.ticks.x = element_line(size = 0.25, colour = "black"),
+        axis.ticks.y = element_line(size = 0.25, colour = "black"),
         plot.margin = unit(c(0,0.5,-0.5,0), "lines")) +
   labs(y = "Latitude (°)", x = "Year (ka BP)")
 
-rcp <- ggplot(data = hs_temps[Scen != "TraCE", ], 
-                aes(x = Year, y = lyr1, fill = value)) +
-  facet_wrap(~Scen, ncol = 2, 
-             labeller = as_labeller(c("RCP45" = "b", "RCP85" = "c"))) +
+hco_ts <- ggplot(data = hs_temps[Scen == "HCO" & mean >= 18, ], 
+                aes(x = Year/1000, y = lyr1, fill = mean)) +
   geom_raster(na.rm = TRUE) +
-  scale_fill_stepsn(colours = cpt("arendal_temperature", n = 21),
-                    limits = c(12, 32),
+  facet_wrap(~Scen, ncol = 1, scales = "free_x",
+             labeller = as_labeller(c("HCO" = "b"))) +
+  scale_fill_stepsn(colours = cpt("arendal_temperature", n = 24)[-(1:9)],
+                    limits = c(18, 32),
                     oob = scales::squish,
                     na.value = "transparent",
-                    breaks = seq(12, 32, length = 21),
+                    breaks = seq(18, 32, length = 15),
+                    labels = function(x) ifelse(x %% 2L == 0, x, "")) +
+  scale_x_continuous(breaks = seq(-9,-5,length = 5), expand = c(0, 0),
+                     limits = c(-9, -5)) +
+  scale_y_continuous(limits = c(-45, 40), 
+                     expand = c(0,0),
+                     breaks = seq(-40,40,20)) +
+  theme_half_open() +
+  theme(legend.position = "none",
+        legend.direction = "horizontal",
+        legend.justification = "centre",
+        strip.text.x = element_text(size = 14, colour = "black", face = "bold", hjust = 0),
+        strip.background = element_blank(),
+        plot.background = element_rect(fill = NA, colour = NA),
+        axis.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        axis.line = element_line(size = 0.25, colour = "black"),
+        axis.ticks.x = element_line(size = 0.25, colour = "black"),
+        axis.ticks.y = element_line(size = 0.25, colour = "black"),
+        plot.margin = unit(c(0,0.5,-0.5,0), "lines")) +
+  labs(y = "Latitude (°)", x = "Year (ka BP)")
+
+hco_s <- ggplot(data = hs_temps[Scen == "HCO_Time" & value >= 18, ], 
+                aes(x = Year/1000, y = lyr1, fill = value)) +
+  geom_raster(na.rm = TRUE) +
+  facet_wrap(~Scen, ncol = 1, scales = "free_x",
+             labeller = as_labeller(c("HCO_Time" = "c"))) +
+  scale_fill_stepsn(colours = cpt("arendal_temperature", n = 24)[-(1:9)],
+                    limits = c(18, 32),
+                    oob = scales::squish,
+                    na.value = "transparent",
+                    breaks = seq(18, 32, length = 15),
+                    labels = function(x) ifelse(x %% 2L == 0, x, "")) +
+  scale_x_continuous(expand = c(0, 0), breaks = seq(-7,-7,1),
+                     labels = "") +
+  scale_y_continuous(limits = c(-45, 40), 
+                     expand = c(0,0),
+                     breaks = seq(-40,40,20)) +
+  theme_half_open() +
+  theme(legend.position = "none",
+        legend.direction = "horizontal",
+        legend.justification = "centre",
+        strip.text.x = element_text(size = 14, colour = "black", face = "bold", hjust = 0),
+        strip.background = element_blank(),
+        plot.background = element_rect(fill = NA, colour = NA),
+        axis.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        axis.line = element_line(size = 0.25, colour = "black"),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_line(size = 0.25, colour = "black"),
+        plot.margin = unit(c(0,0.5,-0.5,0), "lines")) +
+  labs(y = "Latitude (°)", x = "HCO")
+
+rcp <- ggplot(data = hs_temps[Scen %in% c("RCP45", "RCP85") & value >= 18, ], 
+                aes(x = Year, y = lyr1, fill = value)) +
+  facet_wrap(~Scen, ncol = 2, 
+             labeller = as_labeller(c("RCP45" = "d", "RCP85" = "e"))) +
+  geom_raster(na.rm = TRUE) +
+  scale_fill_stepsn(colours = cpt("arendal_temperature", n = 24)[-(1:9)],
+                    limits = c(18, 32),
+                    oob = scales::squish,
+                    na.value = "transparent",
+                    breaks = seq(18, 32, length = 15),
                     labels = function(x) ifelse(x %% 2L == 0, x, ""),
                        guide = guide_colourbar(
                          title = "Temperature (°C)",
@@ -684,9 +746,11 @@ rcp <- ggplot(data = hs_temps[Scen != "TraCE", ],
                          draw.ulim = FALSE,
                          draw.llim = FALSE
                        )) +
+  geom_vline(xintercept = c(2080, 2100),
+             colour = "#000000", size = 0.5, linetype = "dotted") +
   scale_x_continuous(breaks = seq(1850,2100, length = 6), 
                      expand = c(0, 0)) +
-  scale_y_continuous(limits = c(-40, 40), 
+  scale_y_continuous(limits = c(-45, 40), 
                      expand = c(0,0),
                      breaks = seq(-40,40,20)) +
   coord_cartesian(clip = "off") +
@@ -702,11 +766,12 @@ rcp <- ggplot(data = hs_temps[Scen != "TraCE", ],
         axis.title = element_text(size = 10),
         axis.line = element_line(size = 0.25, colour = "black"),
         axis.ticks.x = element_line(size = 0.25, colour = "black"),
+        axis.ticks.y = element_line(size = 0.25, colour = "black"),
         panel.spacing.x = unit(1.75, "lines"),
         plot.margin = unit(c(0,0.5,-0.5,0), "lines")) +
   labs(y = "Latitude (°)", x = "Year (C.E.)")
 
-fig03 <- {trace}/{rcp} + plot_layout(ncol = 1)
+fig03 <- {trace}/{hco_ts + hco_s}/{rcp} + plot_layout(ncol = 1)
 
 # save to PDF
 ggsave(filename = "Figure02.pdf", plot = fig02,
@@ -714,7 +779,7 @@ ggsave(filename = "Figure02.pdf", plot = fig02,
        width = 9, height = 4.2, units = "in", dpi = 350)
 ggsave(filename = "Figure03.pdf", plot = fig03,
        device = cairo_pdf, path = "Figures",
-       width = 9, height = 5, units = "in", dpi = 350)
+       width = 9, height = 7, units = "in", dpi = 350)
 
 # save to PNG for MS
 ggsave(filename = "Figure02.png", plot = fig02,
@@ -722,7 +787,7 @@ ggsave(filename = "Figure02.png", plot = fig02,
        bg = "white", width = 9, height = 4.2, units = "in", dpi = 350)
 ggsave(filename = "Figure03.png", plot = fig03,
        device = "png", type = "cairo", path = "Figures",
-       bg = "white", width = 9, height = 5, units = "in", dpi = 350)
+       bg = "white", width = 9, height = 7, units = "in", dpi = 350)
 # plot
 fig02 + theme_map() + labs(caption = "Figure 02 - Exposure to future changes in rates of accelerated oceanic warming under RCP 4.5.")
 fig03 + labs(caption = "Figure 03 - Temporal changes in latitudinal mean annual sea-surface temperature in hotspots of marine biodiversity")
@@ -815,7 +880,7 @@ plot_list <- lapply(plot_regions, function(region) {
     geom_segment(data = signif.lines[Region == region & Scenario != "RCP45", ],
                  aes(y = 0.01, yend = 0.33, x = xMed, xend = xMed,
                      colour = Scenario, group = interaction(Region, Scenario)), 
-                 arrow = arrow(ends = "first", angle = 30, length = unit(.25,"cm"))) +
+                 arrow = grid::arrow(ends = "first", angle = 30, length = unit(.25,"cm"))) +
     theme_void() +
     theme(legend.position = "none")
   return(reg_dens)
@@ -833,25 +898,25 @@ figs2 <- ggdraw({{left_col} | {maps2} | {right_col}} +
   draw_line(x = c(0.17, 0.43),
             y = c(0.43, 0.43),
             size = 0.65,
-            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+            arrow = grid::arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
   draw_label(label = "d", size = 16, x = 0.025, y = 0.45, fontface = "bold") +
   ## NA Boreal
   draw_line(x = c(0.17, 0.35, 0.35),
             y = c(0.85, 0.85, 0.78),
            size = 0.65,
-            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+            arrow = grid::arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
   draw_label(label = "b", size = 16, x = 0.025, y = 0.95, fontface = "bold") +
   ## Gulf of Mexico
   draw_line(x = c(0.825, 0.70, 0.70),
             y = c(0.85, 0.85, 0.62),
             size = 0.65,
-            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+            arrow = grid::arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
    draw_label(label = "c", size = 16, x = 0.835, y = 0.95, fontface = "bold") +
   ## Gulf of Cali.
   draw_line(x = c(0.825, 0.70, 0.70),
             y = c(0.43, 0.43, 0.51),
             size = 0.65,
-            arrow = arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
+            arrow = grid::arrow(ends = "last", angle = 30, length = unit(.25,"cm"))) +
   draw_label(label = "e", size = 16, x = 0.835, y = 0.45, fontface = "bold")
 
 figs2 <- ggdraw(figs2) +
