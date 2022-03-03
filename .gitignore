@@ -2,10 +2,10 @@
 .Rhistory
 .RData
 .Ruserdata
-.grd
-.gri
-.tif
-.csv
+# .grd
+# .gri
+# .tif
+# .csv
 
 # Exclude TraCE21 temp stack
 # Data for HCO is included in analysis
