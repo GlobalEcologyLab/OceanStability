@@ -44,6 +44,8 @@ library(units)
 library(spatialEco)
 library(geosphere)
 library(gdistance)
+library(cowplot)
+library(cptcity)
 
 sf_use_s2(FALSE)
 
@@ -139,18 +141,24 @@ values(rcp85) <- round(values(rcp85), 2)
 names(rcp85) <- "RCP85"
 ```
 
-A quick plot of the averages shows warmer conditions by 2090 than that experienced during the Holocene Climatic Optimum.
+A quick plot of the averages shows warmer conditions by 2090 than that experienced during the Holocene thermal optimum.
 
-```{r plotTemps, echo = FALSE, fig.show='asis', fig.cap="SST values during the Holocene Climatic Optimum and the future under RCP 4.5 and RCP 8.5", fig.align='center', fig.height=5, fig.width=9}
+```{r plotTemps, echo = FALSE, fig.show='asis', fig.cap="SST values during the Holocene thermal optimum and the future under RCP 4.5 and RCP 8.5", fig.align='center', fig.height=5, fig.width=9}
 xdf <- melt(setDT(
-  as.data.frame(rast(list(hco[["HCO"]], rcp45, rcp85)),
+  as.data.frame(rast(list(hco[["HCO"]], hco[["HCO_SD"]]+hco[["HCO"]], rcp45, rcp85)),
                 xy = TRUE)), id.vars = c("x", "y"))
-xdf[, variable := factor(variable, levels = c("HCO", "RCP45", "RCP85"))]
+xdf[, variable := factor(variable, levels = c("HCO", "HCO_SD", "RCP45", "RCP85"))]
 ggplot() +
   geom_raster(data = xdf, aes(x, y, fill = value)) +
-  facet_wrap(~variable, ncol = 2) +
+  facet_wrap(~variable, ncol = 2,
+             labeller = as_labeller(c("HCO" = "Holocene thermal optimum",
+                                      "HCO_SD" = "Upper Holocene thermal optimum",
+                                    "RCP45" = "RCP 4.5",
+                                    "RCP85" = "RCP 8.5"))) +
   scale_fill_gradientn(colours = cptcity::cpt("oc_sst", 100),
-                       limits = c(-33, 33),
+                       # colours = viridis::turbo(100),
+                       limits = c(-30, 30),
+                       oob = scales::squish,
                        labels = seq(-30, 30, by = 10),
                        breaks = seq(-30, 30, by = 10),
                        guide = guide_colourbar(
@@ -165,14 +173,16 @@ ggplot() +
                          barheight = 0.5,
                          nbin = 100,
                          frame.colour = "black",
+                         draw.ulim = TRUE,
+                         draw.llim = TRUE,
                          frame.linewidth = 0.5
                        )) +
-  geom_sf(data = land, colour = NA, fill = "grey85", inherit.aes = FALSE) +
+  geom_sf(data = land, colour = NA, fill = "#FFFFFF", inherit.aes = FALSE) +
   geom_sf(data = coastlines, colour = "black", fill = NA, inherit.aes = FALSE) +
   coord_sf(xlim = c(-180,180), ylim = c(-90,90),
            expand = FALSE) +
   cowplot::theme_map() +
-  theme(legend.position = c(0.75, 0.25),
+  theme(legend.position = "bottom",
         legend.justification = "center",
         legend.direction = "horizontal",
         strip.text.x = element_text(size = 12, colour = "black"))
@@ -536,12 +546,11 @@ vect85 <- st_cast(vect85, "LINESTRING",
 vects <- rbind(vect45, vect85)
 vects$Scen <- c(rep("RCP45", nrow(vect45)),
                 rep("RCP85", nrow(vect85)))
-
+vects$Scen <- factor(vects$Scen, levels = c("RCP45", "RCP85"))
 # randomly sort the rows for plotting
 ## essentially so rcp85 doesn't dominate the plot!
 ## unfortunately geom_sf doesn't support arrows (!), and in this case 
 ## (due to lines crossing 160° meridian), arrows need to be added in illustrator.
-{set.seed(54); vects <- vects[sample(1:nrow(vects), nrow(vects), replace = FALSE), ]}
 
 figS4 <- ggplot() +
   geom_sf(data = land_prj, size = 0.25,
@@ -722,7 +731,7 @@ ggsave(filename = "FigureS5.pdf", plot = figS5,
        width = 5, height = 6.5, units = "in", dpi = 350)
 
 # save to PNG for MS
-ggsave(filename = "Figure4.png", plot = figS5,
+ggsave(filename = "FigureS5.png", plot = figS5,
        device = "png", type = "cairo", path = "Figures",
        bg = "white", width = 5, height = 6.5, units = "in", dpi = 350)
 
@@ -865,20 +874,31 @@ vect85eez <- st_cast(vect85eez, "LINESTRING",
 vectseez <- rbind(vect45eez, vect85eez)
 vectseez$Scen <- c(rep("RCP45", nrow(vect45eez)),
                    rep("RCP85", nrow(vect85eez)))
-# randomly sort the rows for plotting
-## essentially so rcp85 doesn't dominate the plot!
-{set.seed(54); vectseez <- vectseez[sample(1:nrow(vectseez), nrow(vectseez), replace = FALSE), ]}
+vectseez$Scen <- factor(vectseez$Scen, levels = c("RCP45", "RCP85"))
+
+# The vectseez here are have been saved out and then projected in ArcGIS Pro.
+## Lines were disappearing when the projection was rotated?
+## Here we read in the projected vecteez data.
+## if you have changed anything in the analysis, comment out these lines
+## to see your projected results!
+vectseez <- st_read("shapes/mapping_shapes.gpkg", layer = "eez_displ_prj",
+                    quiet = TRUE)
+vectseez$Scen <- factor(vectseez$Scen, levels = c("RCP45", "RCP85"))
 
 # unfortunately geom_sf doesn't support arrows (!), and in this case 
 # (due to lines crossing 160° meridian), arrows need to be added in illustrator.
 fig04 <- ggplot() +
   geom_sf(data = land_prj, size = 0.25,
           inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
-  geom_sf(data = hotspots_prj, size = 0.25,
+  geom_sf(data = hotspots_prj, size = 0.5,
           inherit.aes = FALSE, fill = NA, colour = "black") +
-  geom_sf(data = eez_prj, size = 0.25,
+  geom_sf(data = eez_prj, size = 0.5,
           inherit.aes = FALSE, fill = NA, colour = "#91608D") +
-  geom_sf(data = vectseez, aes(colour = Scen), size = 1, #colour = "#D6BE6983",
+  geom_sf(data = vectseez[vectseez$Scen == "RCP85", ], aes(colour = Scen), 
+          size = 1, #colour = "#D6BE6983",
+          inherit.aes = FALSE, show.legend = TRUE) +
+  geom_sf(data = vectseez[vectseez$Scen == "RCP45", ], aes(colour = Scen), 
+          size = 1, #colour = "#D6BE6983",
           inherit.aes = FALSE, show.legend = TRUE) +
   scale_colour_manual(values = c("RCP45" = "#f4a58283",
                                  "RCP85" = "#b2182b83"),
@@ -907,16 +927,86 @@ fig04 <- ggplot() +
   cowplot::theme_map() +
   theme(legend.position = "bottom",
         legend.justification = "center",
-        legend.direction = "horizontal")
+        legend.direction = "horizontal",
+        strip.text.x = element_text(size = 14, colour = "black", face = "bold", hjust = 0),
+        strip.background = element_blank(),
+        plot.background = element_rect(fill = NA, colour = NA))
+
+# Create the hovmoller plot that gets stacked in the corner
+# Read in the temperature data for the hotspots
+hs_temps <- setDT(readRDS("Source/annual_temps_latbands_hotspots_v2.RDS"))
+hs_temps <- hs_temps[Scen %in% c("HCO_Time", "RCP45_Time", "RCP85_Time"), ]
+hs_temps[, xlab := fifelse(Scen == "HCO_Time", "HTM",
+                           fifelse(Scen == "RCP45_Time", "RCP 4.5", "RCP 8.5"), NA)]
+
+hco_search <- ggplot(data = hs_temps[value >= 18, ],
+                aes(x = xlab, y = lyr1, fill = value)) +
+  geom_tile(na.rm = TRUE, width = 0.9) +
+  # facet_wrap(~Scen, ncol = 3, scales = "free_x") +
+  scale_fill_stepsn(colours = cpt("arendal_temperature", n = 24)[-(1:9)],
+                    limits = c(18, 32),
+                    oob = scales::squish,
+                    na.value = "transparent",
+                    breaks = seq(18, 32, length = 15),
+                    labels = function(x) ifelse(x %% 2L == 0, x, ""),
+                    guide = guide_colourbar(
+                         title = "Temperature (°C)",
+                         title.position = "top",
+                         title.hjust = 0.5,
+                         title.theme = element_text(size = 10, colour = "black"),
+                         label.position = "bottom",
+                         label.hjust = 0.5,
+                         label.theme = element_text(size = 10, colour = "black"),
+                         barwidth = 10,
+                         barheight = 0.75,
+                         nbin = 100,
+                         frame.colour = "black",
+                         frame.linewidth = 0.5,
+                         ticks = TRUE,
+                         ticks.colour = "black",
+                         ticks.linewidth = 0.5,
+                         draw.ulim = FALSE,
+                         draw.llim = FALSE
+                       )) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_continuous(limits = c(-45, 40),
+                     expand = c(0,0),
+                     breaks = seq(-40,40,20)) +
+  coord_cartesian(clip = "off", expand = FALSE) +
+  theme_half_open() +
+  theme(legend.position = "bottom",
+        legend.direction = "horizontal",
+        legend.justification = "centre",
+        legend.margin = margin(-0.5, 0, 0, 0, unit = "lines"),
+        strip.text.x = element_blank(),
+        strip.background = element_blank(),
+        plot.background = element_rect(fill = NA, colour = NA),
+        axis.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        axis.line = element_line(size = 0.25, colour = "black"),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_line(size = 0.25, colour = "black"),
+        panel.spacing.x = unit(0.2, "lines"),
+        plot.margin = unit(c(0,0,0,0), "lines")) +
+  labs(y = "Latitude (°)", x = NULL)
+
+fig04 <- ggdraw(fig04) +
+  draw_plot_label(label = "a", x = 0.01, y = 0.90, size = 14) +
+  draw_plot(hco_search + 
+              theme(plot.background = element_rect(fill = "#FFFFFF", colour = NA),
+                    legend.margin = margin(-0.75, 0, 0, 0, unit = "lines")),
+            width = 0.18, height = 0.3, x = 0.002, y = 0.027) +
+  draw_plot_label(label = "b", x = 0.01, y = 0.37, size = 14)
+
 # save to PDF
 ggsave(filename = "Figure04.pdf", plot = fig04,
        device = cairo_pdf, path = "Figures",
-       width = 7, height = 5, units = "in", dpi = 350)
+      width = 14, height = 8.46, units = "in", dpi = 350)
 
 # save to PNG for MS
 ggsave(filename = "Figure04.png", plot = fig04,
        device = "png", type = "cairo", path = "Figures",
-       bg = "white", width = 7, height = 5, units = "in", dpi = 350)
+       bg = "white", width = 14, height = 8.46, units = "in", dpi = 350)
 
 # plot
 fig04 + labs(caption = "Figure 4 - Dispersal from hotspot locations to climate analogues under RCP 4.5 and RCP 8.5 restricted to EEZ")
