@@ -887,7 +887,13 @@ vectseez$Scen <- factor(vectseez$Scen, levels = c("RCP45", "RCP85"))
 
 # unfortunately geom_sf doesn't support arrows (!), and in this case 
 # (due to lines crossing 160° meridian), arrows need to be added in illustrator.
-fig04 <- ggplot() +
+
+# Read in the temperature data for the hotspots
+hs_temps <- setDT(readRDS("Source/annual_temps_latbands_hotspots_v2.RDS"))
+hs_temps <- hs_temps[Scen %in% c("HCO_Time", "RCP45_Time", "RCP85_Time"), ]
+hs_temps[, xlab := fifelse(Scen == "HCO_Time", "HTM",
+                           fifelse(Scen == "RCP45_Time", "RCP 4.5", "RCP 8.5"), NA)]
+{fig04 <- ggplot() +
   geom_sf(data = land_prj, size = 0.25,
           inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
   geom_sf(data = hotspots_prj, size = 0.5,
@@ -912,9 +918,12 @@ fig04 <- ggplot() +
                          label.position = "bottom",
                          label.hjust = 0.5,
                          label.theme = element_text(size = 12, colour = "black"),
-                         keywidth = unit(3, "mm"),
-                         keyheight = unit(3, "mm"),
+                         keywidth = unit(5, "mm"),
+                         keyheight = unit(5, "mm"),
                          direction = "horizontal",
+                         override.aes = list(colour = c("RCP45" = "#f4a582",
+                                                        "RCP85" = "#b2182b"),
+                                             size = 1),
                          nrow = 1
                        )) +
   geom_sf(data = coast_prj, size = 0.25,
@@ -932,13 +941,6 @@ fig04 <- ggplot() +
         strip.background = element_blank(),
         plot.background = element_rect(fill = NA, colour = NA))
 
-# Create the hovmoller plot that gets stacked in the corner
-# Read in the temperature data for the hotspots
-hs_temps <- setDT(readRDS("Source/annual_temps_latbands_hotspots_v2.RDS"))
-hs_temps <- hs_temps[Scen %in% c("HCO_Time", "RCP45_Time", "RCP85_Time"), ]
-hs_temps[, xlab := fifelse(Scen == "HCO_Time", "HTM",
-                           fifelse(Scen == "RCP45_Time", "RCP 4.5", "RCP 8.5"), NA)]
-
 hco_search <- ggplot(data = hs_temps[value >= 18, ],
                 aes(x = xlab, y = lyr1, fill = value)) +
   geom_tile(na.rm = TRUE, width = 0.9) +
@@ -950,15 +952,15 @@ hco_search <- ggplot(data = hs_temps[value >= 18, ],
                     breaks = seq(18, 32, length = 15),
                     labels = function(x) ifelse(x %% 2L == 0, x, ""),
                     guide = guide_colourbar(
-                         title = "Temperature (°C)",
-                         title.position = "top",
+                         title = "SST (°C)",
+                         title.position = "left",
                          title.hjust = 0.5,
-                         title.theme = element_text(size = 10, colour = "black"),
-                         label.position = "bottom",
+                         title.theme = element_text(size = 8, colour = "black", angle = 90),
+                         label.position = "right",
                          label.hjust = 0.5,
-                         label.theme = element_text(size = 10, colour = "black"),
-                         barwidth = 10,
-                         barheight = 0.75,
+                         label.theme = element_text(size = 8, colour = "black"),
+                         barwidth = 0.5,
+                         barheight = 5,
                          nbin = 100,
                          frame.colour = "black",
                          frame.linewidth = 0.5,
@@ -974,42 +976,43 @@ hco_search <- ggplot(data = hs_temps[value >= 18, ],
                      breaks = seq(-40,40,20)) +
   coord_cartesian(clip = "off", expand = FALSE) +
   theme_half_open() +
-  theme(legend.position = "bottom",
-        legend.direction = "horizontal",
+  theme(legend.position = "right",
+        legend.direction = "vertical",
         legend.justification = "centre",
-        legend.margin = margin(-0.5, 0, 0, 0, unit = "lines"),
+        legend.margin = margin(0, 0, 0, -0.5, unit = "lines"),
         strip.text.x = element_blank(),
         strip.background = element_blank(),
         plot.background = element_rect(fill = NA, colour = NA),
-        axis.text = element_text(size = 10),
-        axis.title = element_text(size = 10),
+        axis.text = element_text(size = 8),
+        axis.title = element_text(size = 8),
         axis.line = element_line(size = 0.25, colour = "black"),
-        axis.ticks.x = element_blank(),
+        axis.ticks.x = element_line(size = 0.25, colour = "black"),
         axis.ticks.y = element_line(size = 0.25, colour = "black"),
         panel.spacing.x = unit(0.2, "lines"),
         plot.margin = unit(c(0,0,0,0), "lines")) +
   labs(y = "Latitude (°)", x = NULL)
 
-fig04 <- ggdraw(fig04) +
+fig04_comp <- ggdraw(fig04) +
   draw_plot_label(label = "a", x = 0.01, y = 0.90, size = 14) +
   draw_plot(hco_search + 
               theme(plot.background = element_rect(fill = "#FFFFFF", colour = NA),
-                    legend.margin = margin(-0.75, 0, 0, 0, unit = "lines")),
-            width = 0.18, height = 0.3, x = 0.002, y = 0.027) +
-  draw_plot_label(label = "b", x = 0.01, y = 0.37, size = 14)
+                    legend.margin = margin(0, -0.5, 0, -0.2, unit = "lines"),
+                    axis.text.x = element_text(size = 8, angle = 45, vjust = 0.7)),
+            width = 0.21, height = 0.36, x = 0.002, y = 0.005) +
+  draw_plot_label(label = "b", x = 0.01, y = 0.42, size = 14)}
 
 # save to PDF
-ggsave(filename = "Figure04.pdf", plot = fig04,
+ggsave(filename = "Figure04.pdf", plot = fig04_comp,
        device = cairo_pdf, path = "Figures",
-      width = 14, height = 8.46, units = "in", dpi = 350)
+       width = 8.5, height = 5, units = "in", dpi = 350)
 
 # save to PNG for MS
-ggsave(filename = "Figure04.png", plot = fig04,
+ggsave(filename = "Figure04.png", plot = fig04_comp,
        device = "png", type = "cairo", path = "Figures",
-       bg = "white", width = 14, height = 8.46, units = "in", dpi = 350)
+       bg = "white", width = 8.5, height = 5, units = "in", dpi = 350)
 
 # plot
-fig04 + labs(caption = "Figure 4 - Dispersal from hotspot locations to climate analogues under RCP 4.5 and RCP 8.5 restricted to EEZ")
+fig04_comp + labs(caption = "Figure 4 - Dispersal from hotspot locations to climate analogues under RCP 4.5 and RCP 8.5 restricted to EEZ")
 ```
 
 ## References
