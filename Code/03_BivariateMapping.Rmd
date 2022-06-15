@@ -218,12 +218,12 @@ hist_right <- ggplot(data = zonal_summary) +
            width = rep(as.numeric(abs((zonal_summary[1,1] - zonal_summary[2,1]))),
                        nrow(zonal_summary))) +
   scale_y_continuous(
-    breaks = c(-0.20,0.0,0.20),
+    breaks = c(-0.20, 0.0, 0.20),
     limits = c(-0.30, 0.30),
     labels = c("Neg.", expression(atop("\n",paste(delta, " SNR"))), "Pos."),
     oob = scales::squish
     ) +
-  scale_fill_gradientn(colours = cptcity::cpt("ncl_BlueYellowRed", 100), 
+  scale_fill_gradientn(colours = cptcity::cpt("ncl_BlueYellowRed", 100),
                        na.value = "transparent") +
   coord_flip(expand = FALSE) +
   theme_minimal() +

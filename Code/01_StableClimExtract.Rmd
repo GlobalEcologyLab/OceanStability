@@ -41,7 +41,7 @@ In this section we load the necessary libraries, set the paths to the StableClim
 
 ```{r setSC, eval = TRUE, echo = TRUE}
 # load libs
-library(terra) ## 1.4.19
+library(terra) ## 1.5.21
 library(data.table) ## 1.14.2
 library(pbapply) ## 1.4.3
 library(sf) ## 1.0-3
