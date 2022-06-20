@@ -250,10 +250,10 @@ Here we can look at the change in hotspots cells across all scenarios
 ```{r hsChanges, results='markup'}
 ## how many HS cells are more extreme than the total number of HS cells?
 ## the global percentage of hotspots of marine species richness that are likely to experience no-analogue rates of 21st century climate warming
-## these numbers are reported in the main text
+## these numbers are reported in the methods
 num_ext_cells[, .(GlbCh = round(sum(`95%`)/sum(Total_HS_cells), 2)*100), by = Scen]
 
-## weighted mean based on total realm area
+## weighted mean based on total realm area (reported in main text)
 num_ext_cells[, .(WtdMean = round(Hmisc::wtd.mean(x = `perc_95%`, weights = Total_Realm_cells, normwt = FALSE))),
               by = Scen]
 ```
@@ -263,12 +263,12 @@ num_ext_cells[, .(WtdMean = round(Hmisc::wtd.mean(x = `perc_95%`, weights = Tota
 The results of the sensitivity analysis show that for some regions there are changes with regards to the number of hotspot cells that will experience more extreme conditions in the future depending on the threshold of past SNR
 
 ```{r sensResults, results='markup', rownames.print = TRUE, rows.print = 13}
-cols <- c("Realm", "Scen", "Total_HS_cells", colnames(num_ext_cells)[grepl("^[9]", colnames(num_ext_cells))])
+cols <- c("Realm", "Scen", "Total_HS_cells", "Total_Realm_cells", colnames(num_ext_cells)[grepl("^[9]", colnames(num_ext_cells))])
 sens <- melt(num_ext_cells[, ..cols][order(-Scen), ], id.vars = c("Realm", "Scen"))
 sens_realms <- sapply(unique(sens$Realm), function(x) {
   sumCells <- sens[Realm == x & variable == "Total_HS_cells",][["value"]][1L]
-  extCells45 <- sens[Realm == x & variable != "Total_HS_cells" & Scen == "RCP45",][["value"]]
-  extCells85 <- sens[Realm == x & variable != "Total_HS_cells" & Scen == "RCP85",][["value"]]
+  extCells45 <- sens[Realm == x & variable != "Total_HS_cells" & variable != "Total_Realm_cells" & Scen == "RCP45",][["value"]]
+  extCells85 <- sens[Realm == x & variable != "Total_HS_cells" & variable != "Total_Realm_cells" & Scen == "RCP85",][["value"]]
   r45 <- sd((extCells45/sumCells)*100)
   r85 <- sd((extCells85/sumCells)*100)
   return(c("RCP 4.5" = r45, "RCP 8.5" = r85))
@@ -278,6 +278,25 @@ round(sens_realms, 1)
 
 # average sd across all realms
 round(apply(as.data.frame(t(sens_realms)), 2, mean), 2)
+
+# range in sd across all realms
+round(apply(as.data.frame(t(sens_realms)), 2, range), 2)
+
+sens_realms_wtd <- sapply(unique(sens$Realm), function(x) {
+  sumCells <- sens[Realm == x & variable == "Total_HS_cells",][["value"]][1L]
+  realmCells <- sens[Realm == x & variable == "Total_Realm_cells",][["value"]][1L]
+  extCells45 <- sens[Realm == x & variable != "Total_HS_cells" & variable != "Total_Realm_cells" & Scen == "RCP45",][["value"]]
+  extCells85 <- sens[Realm == x & variable != "Total_HS_cells" & variable != "Total_Realm_cells" & Scen == "RCP85",][["value"]]
+  r45 <- sd((extCells45/sumCells)*100)
+  r85 <- sd((extCells85/sumCells)*100)
+  return(c("wRCP 4.5" = r45, "wRCP 8.5" = r85))
+})
+# Sensitivity (sd in % cells depending on threshold)
+round(sens_realms_wtd, 1)
+
+# average sd across all realms
+wts <- sens[variable == "Total_Realm_cells", .(weight = max(value)), by = "Realm"]
+round(apply(as.data.frame(t(sens_realms)), 2, function(x) Hmisc::wtd.mean(x, weights = wts[["weight"]], normwt = FALSE)), 2)
 
 # range in sd across all realms
 round(apply(as.data.frame(t(sens_realms)), 2, range), 2)
