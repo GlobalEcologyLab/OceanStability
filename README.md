@@ -2,7 +2,7 @@
 
 Code for analysing SST climatic stability
 
-This folder can be used to recreate the analysis and plots in '*Marine biodiversity hotspots are highly vulnerable to future rates of ocean warming*'.
+This folder can be used to recreate the analysis and plots in '*Faster ocean warming threatens richest areas of marine biodiversity*'.
 
 To use, simply unzip the folder to your desired location, and then double click on the OceanStability.Rproj file to open the RStudio project. There are two datasets that need to be sourced before you can recreate the analysis.
 
@@ -18,10 +18,10 @@ You will need to edit some paths present in the files to get them to work proper
 
 For example, in 01_StableClimExtract.Rmd, changes need to be made on the following lines:
 
-Line 55: `scPath <- "/mnt/c/StableClim"`, change this to the location of the *StableClim* data
+Line 56: `scPath <- "/mnt/c/StableClim"`, change this to the location of the *StableClim* data
 
 In 02_sppRichness.Rmd, the location of the marine biogeographic realms needs to be changed:
 
-Line 61: `regions <- read_sf("/mnt/c/Shapes/MarineRealmsShapeFile/MarineRealms.shp")`, change this to the location where you have extracted the realms.
+Line 62: `regions <- read_sf("/mnt/c/Shapes/MarineRealmsShapeFile/MarineRealms.shp")`, change this to the location where you have extracted the realms.
 
 You can then either [knit the documents](https://rmarkdown.rstudio.com/articles_intro.html) or run through them [interactively](https://bookdown.org/yihui/rmarkdown/notebook.html#executing-code)
