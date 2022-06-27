@@ -26,8 +26,8 @@ knitr::opts_chunk$set(echo = TRUE, rows.print = 10, cols.print = 10,
                       tidy = "styler", dpi = 320, fig.align = "center",
                       strip.white = TRUE, 
                       dev.args = list(png  = list(type = "cairo")))
-if(!dir.exists("outputs")) {
-  dir.create("outputs/", recursive = TRUE)
+if(!dir.exists("../outputs")) {
+  dir.create("../outputs/", recursive = TRUE)
 }
 ```
 
@@ -42,14 +42,15 @@ In this section we load the necessary libraries, set the paths to the StableClim
 ```{r setSC, eval = TRUE, echo = TRUE}
 # load libs
 library(terra) ## 1.5.21
-library(data.table) ## 1.14.2
-library(pbapply) ## 1.4.3
-library(sf) ## 1.0-3
+library(data.table)
+library(pbapply)
+library(sf) ## 1.0-5
 library(rnaturalearth)
 library(rnaturalearthdata)
 library(ggplot2)
 library(scales)
 library(cptcity)
+library(MetBrewer)
 
 # StableClim path
 scPath <- "/mnt/c/StableClim"
@@ -271,7 +272,7 @@ xdf <- melt(setDT(as.data.frame(x, xy = TRUE)), id.vars = c("x", "y"))
 ggplot() +
   geom_raster(data = xdf, aes(x, y, fill = value)) +
   facet_wrap(~variable, ncol = 2) +
-  scale_fill_gradientn(colours = hcl.colors(100, "Temps"),
+  scale_fill_gradientn(colours = met.brewer(name = "Hokusai1", n = 100, direction = -1),
                        limits = c(0, 6),
                        labels = c("Low","", "High"),
                        breaks = c(0, 3, 6),
@@ -385,7 +386,7 @@ xdf <- melt(setDT(as.data.frame(x, xy = TRUE)), id.vars = c("x", "y"))
 ggplot() +
   geom_raster(data = xdf, aes(x, y, fill = value)) +
   facet_wrap(~variable, ncol = 2) +
-  scale_fill_gradientn(colours = cptcity::cpt("ncl_BlWhRe", n = 100),
+  scale_fill_gradientn(colours = cpt("ncl_BlWhRe", n = 100),
                        limits = c(-1, 1),
                        labels = c("Lower","No change", "Higher"),
                        breaks = c(-1, 0, 1),
@@ -421,7 +422,7 @@ names(x) <- "value"
 xdf <- setDT(as.data.frame(x, xy = TRUE))
 ggplot() +
   geom_raster(data = xdf, aes(x, y, fill = value)) +
-  scale_fill_gradientn(colours = cptcity::cpt("ocal_german_flag_smooth", n = 100, rev = TRUE),
+  scale_fill_gradientn(colours = cpt("ocal_german_flag_smooth", n = 100, rev = TRUE),
                        limits = range(scales::pretty_breaks(5)(range(xdf$value))),
                        labels = scales::pretty_breaks(5)(range(xdf$value)),
                        breaks = scales::pretty_breaks(5)(range(xdf$value)),

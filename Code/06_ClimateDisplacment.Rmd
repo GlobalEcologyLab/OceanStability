@@ -47,6 +47,7 @@ library(gdistance)
 library(cowplot)
 library(cptcity)
 library(patchwork)
+library(scales)
 
 sf_use_s2(FALSE)
 
@@ -156,7 +157,7 @@ ggplot() +
                                       "HCO_SD" = "Upper Holocene thermal optimum",
                                     "RCP45" = "RCP 4.5",
                                     "RCP85" = "RCP 8.5"))) +
-  scale_fill_gradientn(colours = cptcity::cpt("oc_sst", 100),
+  scale_fill_gradientn(colours = cpt("oc_sst", 100),
                        # colours = viridis::turbo(100),
                        limits = c(-30, 30),
                        oob = scales::squish,
@@ -548,23 +549,13 @@ vects <- rbind(vect45, vect85)
 vects$Scen <- c(rep("RCP45", nrow(vect45)),
                 rep("RCP85", nrow(vect85)))
 vects$Scen <- factor(vects$Scen, levels = c("RCP45", "RCP85"))
-# randomly sort the rows for plotting
-## essentially so rcp85 doesn't dominate the plot!
-## unfortunately geom_sf doesn't support arrows (!), and in this case 
-## (due to lines crossing 160° meridian), arrows need to be added in illustrator.
 
 figS4 <- ggplot() +
   geom_sf(data = land_prj, size = 0.25,
           inherit.aes = FALSE, colour = NA, fill = "#E9E9E9") +
   geom_sf(data = hotspots_prj, size = 0.25,
           inherit.aes = FALSE, fill = NA, colour = "black") +
-  # geom_curve(data = vects, 
-  #            aes(x = x_start, y = y_start, xend = x_end, yend = y_end,
-  #                group = Scen, colour = Scen), curvature = 0.1,
-  #            arrow = arrow(length = unit(0.03, "npc"),
-  #                          angle = 30, end = "last", type = "open")) +
-  geom_sf(data = vects, aes(colour = Scen), size = 1, #colour = "#D6BE6983",
-          # arrow = arrow(length=unit(0.30,"cm"), ends="first", type = "closed"),
+  geom_sf(data = vects, aes(colour = Scen), size = 1, 
           inherit.aes = FALSE, show.legend = TRUE) +
   scale_colour_manual(values = c("RCP45" = "#f4a58283",
                                  "RCP85" = "#b2182b83"),
@@ -590,7 +581,7 @@ figS4 <- ggplot() +
   geom_sf(data = regions_prj, size = 0.25,
           inherit.aes = FALSE, fill = NA, colour = "grey40") +
   coord_sf(expand = FALSE) +
-  cowplot::theme_map() +
+  theme_map() +
   theme(legend.position = "bottom",
         legend.justification = "center",
         legend.direction = "horizontal")
@@ -755,7 +746,7 @@ ggplot() +
           inherit.aes = FALSE, fill = "#E9E9E9", colour = "black") +
   geom_sf(data = bbox_prj, size = 0.25,
           inherit.aes = FALSE, fill = NA, colour = "black") +
-  scale_fill_gradientn(colours = cptcity::cpt("cmocean_curl", 100),
+  scale_fill_gradientn(colours = cpt("cmocean_curl", 100),
                        limits = c(-8000, 8000),
                        labels = function(x) ifelse(test = (seq(-8000, 8000, by = 1000)/4000) %% 2 %in% c(0,1), x, ""),
                        breaks = seq(-8000, 8000, by = 1000),
@@ -775,7 +766,7 @@ ggplot() +
                          frame.linewidth = 0.5
                        )) +
   coord_sf(expand = FALSE) +
-  cowplot::theme_map() +
+  theme_map() +
   theme(legend.position = "bottom",
         legend.justification = "center",
         legend.direction = "horizontal",
@@ -933,7 +924,7 @@ hs_temps[, xlab := fifelse(Scen == "HCO_Time", "HTM",
     geom_sf(data = regions_prj, size = 0.25,
             inherit.aes = FALSE, fill = NA, colour = "grey40") +
     coord_sf(expand = FALSE) +
-    cowplot::theme_map() +
+    theme_map() +
     theme(legend.position = "bottom",
           legend.justification = "center",
           legend.direction = "horizontal",
@@ -944,7 +935,6 @@ hs_temps[, xlab := fifelse(Scen == "HCO_Time", "HTM",
 hco_search <- ggplot(data = hs_temps[value >= 18, ],
                 aes(x = xlab, y = lyr1, fill = value)) +
   geom_tile(na.rm = TRUE, width = 0.9) +
-  # facet_wrap(~Scen, ncol = 3, scales = "free_x") +
   scale_fill_stepsn(colours = cpt("arendal_temperature", n = 24)[-(1:9)],
                     limits = c(18, 32),
                     oob = scales::squish,
@@ -1019,10 +1009,7 @@ dist_density <- ggplot() +
                show.legend = FALSE,
                inherit.aes = FALSE,
                arrow = grid::arrow(ends = "first", angle = 30, length = unit(0.5,"cm"))) +
-  # geom_rug(data = vectseez, pch = "|",
-  #          aes(x = as.numeric(Distance), group = Scen, colour = Scen),
-  #          sides = "b", size = 0.5, alpha = 1/4) +
-  cowplot::theme_half_open() +
+  theme_half_open() +
   theme(
     legend.margin = margin(0, 0, 0, -0.5, unit = "lines"),
     strip.text.x = element_blank(),
@@ -1042,17 +1029,13 @@ dist_density <- ggplot() +
 fig04_comp <- ggdraw(fig04 + theme(legend.position = "bottom")) +
  draw_plot(hco_search + 
               theme(plot.background = element_rect(fill = "#FFFFFF", colour = NA),
-                    # plot.margin = margin(1,1,1,1, unit = "lines"),
-                    legend.margin = margin(0, -0.5, 0, -0.2, unit = "lines"),
-                    #axis.text.x = element_text(size = 8, angle = 45, vjust = 0.7)
-                    ),
+                    legend.margin = margin(0, -0.5, 0, -0.2, unit = "lines")),
             width = 0.40, height = 0.17, x = 0.01, y = 0.005) +
   draw_plot_label(label = "c", x = 0.01, y = 0.20, size = 14) +
   draw_plot(dist_density +
               theme(plot.background = element_rect(fill = "#FFFFFF", colour = NA),
                     axis.text.y = element_blank(),
                     axis.title.y = element_blank(),
-                    # plot.margin = margin(1,1,1,1, unit = "lines"),
                     axis.title.x = element_blank(),
                     axis.text.x = element_text(size = 8)),
             width = 0.40, height = 0.17, x = 0.59, y = 0.005) +

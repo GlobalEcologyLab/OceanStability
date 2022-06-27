@@ -45,6 +45,7 @@ library(rnaturalearth)
 library(DescTools)
 library(scales)
 library(paletteer)
+library(viridis)
 
 # load in the Istat function to compare species richness maps
 source("source/Istat.R")
@@ -128,7 +129,7 @@ ggplot() +
   facet_wrap(~Res, ncol = 1,
              labeller = as_labeller(x = c(Orig = "Original",
                                           Coarse = "Aggregated"))) +
-  scale_fill_gradientn(colours = viridis::rocket(100),
+  scale_fill_gradientn(colours = rocket(100),
                        limits = c(1, 5000),
                        oob = squish,
                        labels = c("Low", "", "High"),
@@ -239,7 +240,7 @@ The different threshold values used to define hotspots of species richness corre
 xdf <- as.data.frame(sppRich_rescale, xy = TRUE, na.rm = TRUE)
 ggplot() +
   geom_raster(data = xdf, aes(x, y, fill = Thresh_0.4)) +
-  scale_fill_gradientn(colours = viridis::mako(100, end = 0.9, begin = 0.1, direction = -1),
+  scale_fill_gradientn(colours = mako(100, end = 0.9, begin = 0.1, direction = -1),
                        limits = c(0, 1),
                        oob = squish,
                        labels = c("Low", "", "High"),

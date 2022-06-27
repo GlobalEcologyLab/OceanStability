@@ -273,7 +273,7 @@ snr_dens <- ggplot(dDeltaDF, aes(x = x)) +
   geom_rug(data = as.data.frame(xdf_Delta),
            aes(x = DeltaSNR),
            inherit.aes = FALSE, col = "#A6A6A652", sides = "b") +
-  cowplot::theme_half_open() +
+  theme_half_open() +
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
   labs(x = expression(paste(delta, " SNR")),
        y = "density")
@@ -294,7 +294,7 @@ msr_dens <- ggplot(dMSRDF, aes(x = x)) +
   geom_rug(data = as.data.frame(xdf_MSR),
            aes(x = MSR),
            inherit.aes = FALSE, col = "#A6A6A652", sides = "b") +
-  cowplot::theme_half_open() +
+  theme_half_open() +
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
   labs(x = "MSR",
        y = "density")
@@ -359,7 +359,7 @@ map01 <- ggplot() +
   geom_sf(data = bbox_prj, size = 0.25,
           inherit.aes = FALSE, fill = NA, colour = "black") +
   scale_fill_gradientn(colours = col.matrix, na.value = "transparent") +
-  cowplot::theme_map() +
+  theme_map() +
   coord_sf(expand = FALSE)
 
 fig01 <- plot_grid(hist_left, map01, hist_right, align = "h", axis = "tb", nrow = 1, 

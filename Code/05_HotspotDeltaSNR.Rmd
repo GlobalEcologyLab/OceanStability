@@ -39,6 +39,7 @@ library(units)
 library(ggplot2)
 library(data.table)
 library(rnaturalearth)
+library(cowplot)
 
 # Ocean
 coastlines <- ne_coastline(50, returnclass = "sf")
@@ -112,7 +113,7 @@ ggplot() +
   geom_sf(data = coastlines, colour = "black", inherit.aes = FALSE, size = 0.5) +
   coord_sf(xlim = c(-180,180), ylim = c(-90,90),
            expand = FALSE) +
-  cowplot::theme_map() +
+  theme_map() +
   theme(legend.position = "bottom",
         legend.justification = "center",
         legend.direction = "horizontal",
