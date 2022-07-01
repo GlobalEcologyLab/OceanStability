@@ -1,8 +1,10 @@
-# OceanStability
-
-Code for analysing SST climatic stability
+# Faster ocean warming threatens richest areas of marine biodiversity
 
 This folder can be used to recreate the analysis and plots in '*Faster ocean warming threatens richest areas of marine biodiversity*'.
+
+DOI: 10.1111/gcb.16328
+
+[![DOI](https://zenodo.org/badge/508904203.svg)](https://zenodo.org/badge/latestdoi/508904203)
 
 To use, simply unzip the folder to your desired location, and then double click on the OceanStability.Rproj file to open the RStudio project. There are two datasets that need to be sourced before you can recreate the analysis.
 
