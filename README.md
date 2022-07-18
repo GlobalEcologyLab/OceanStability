@@ -1,10 +1,10 @@
 # Faster ocean warming threatens richest areas of marine biodiversity
 
-This folder can be used to recreate the analysis and plots in '*Faster ocean warming threatens richest areas of marine biodiversity*'.
+This folder can be used to recreate the analysis and plots in:
 
-DOI: 10.1111/gcb.16328
+Brown, S. C., Mellin, C., García Molinos, J., Lorenzen, E. D., & Fordham, D. A. (2022). Faster ocean warming threatens richest areas of marine biodiversity. *Global Change Biology*, 00, 1– 10. [https://doi.org/10.1111/gcb.16328](https://doi.org/10.1111/gcb.16328)
 
-[![DOI](https://zenodo.org/badge/508904203.svg)](https://zenodo.org/badge/latestdoi/508904203)
+Code is archived at Zenodo - [![DOI](https://zenodo.org/badge/508904203.svg)](https://zenodo.org/badge/latestdoi/508904203)
 
 To use, simply unzip the folder to your desired location, and then double click on the OceanStability.Rproj file to open the RStudio project. There are two datasets that need to be sourced before you can recreate the analysis.
 
